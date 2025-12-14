@@ -479,11 +479,14 @@ const formatErrorHtml = (provider: AIProvider, message: string) => {
 
   // Special handling for GPT OSS 20B (anthropic) errors
   if (provider === 'anthropic' || provider === 'gemini') {
-    const isHtmlError = message.toLowerCase().includes('html') || message.toLowerCase().includes('doctype');
+    const isHtmlError = message.toLowerCase().includes('html') || message.toLowerCase().includes('doctype') || 
+                       message.toLowerCase().includes('server returned html instead of json');
     const isModelError = message.toLowerCase().includes('model') && message.toLowerCase().includes('not found');
-    const isKeyError = message.toLowerCase().includes('invalid') && message.toLowerCase().includes('key');
+    const isKeyError = message.toLowerCase().includes('invalid') && message.toLowerCase().includes('key') ||
+                      message.toLowerCase().includes('authentication failed');
+    const is500Error = message.toLowerCase().includes('api error (500)') || message.toLowerCase().includes('500');
     
-    if (isHtmlError || isModelError || isKeyError) {
+    if (isHtmlError || isModelError || isKeyError || is500Error) {
       return `<!-- Error Generating Code --> 
         <div class="text-red-500 bg-red-900/20 p-4 rounded-lg border border-red-500/50">
           <strong>🚫 GPT OSS 20B Error</strong>
@@ -493,7 +496,7 @@ const formatErrorHtml = (provider: AIProvider, message: string) => {
           <ul class="text-sm list-disc list-inside space-y-1 mb-3">
             ${isModelError ? '<li><strong>Model not available:</strong> The GPT OSS 20B model may not be accessible with your OpenRouter API key. Try using Mistral Devstral instead.</li>' : ''}
             ${isKeyError ? '<li><strong>Invalid API Key:</strong> Check your OPENROUTER_API_KEY in backend environment variables.</li>' : ''}
-            ${isHtmlError ? '<li><strong>API Endpoint Error:</strong> The API returned HTML instead of JSON. This usually means the endpoint is incorrect or the service is down.</li>' : ''}
+            ${isHtmlError || is500Error ? '<li><strong>API Endpoint Error:</strong> The API returned HTML instead of JSON. This usually means the endpoint is incorrect, API key is invalid, or the service is unavailable.</li>' : ''}
             <li>Verify your <code class="bg-black/30 px-1 rounded">OPENROUTER_API_KEY</code> is set correctly in backend</li>
             <li>Check if the model <code class="bg-black/30 px-1 rounded">openai/gpt-oss-20b:free</code> is available in your OpenRouter account</li>
             <li>Try switching to <strong>Mistral Devstral</strong> provider as an alternative</li>

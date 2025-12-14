@@ -515,7 +515,30 @@ app.post('/api/generate', async (req, res) => {
             break; // Success, exit loop
           } catch (sdkErr) {
             const errorMsg = sdkErr?.error?.message || sdkErr?.message || String(sdkErr);
+            const errorStatus = sdkErr?.status || sdkErr?.response?.status || 500;
             lastError = sdkErr;
+            
+            // Check if error response contains HTML (usually means server error or invalid endpoint)
+            const errorString = String(sdkErr);
+            const isHtmlError = errorString.includes('<html') || errorString.includes('<!DOCTYPE') || 
+                               (sdkErr?.response?.data && typeof sdkErr.response.data === 'string' && 
+                                (sdkErr.response.data.includes('<html') || sdkErr.response.data.includes('<!DOCTYPE')));
+            
+            if (isHtmlError || errorStatus === 500) {
+              console.error(`[${provider}] OpenRouter returned HTML error (likely invalid API key or service unavailable):`, errorString.slice(0, 500));
+              return sendResponse(500, {
+                error: `API Error (500): Server returned HTML instead of JSON. This usually means the API endpoint is incorrect, API key is invalid, or the service is unavailable.`,
+                detail: `OpenRouter API Error: ${errorMsg}`,
+                suggestions: [
+                  'Invalid API Key: Check your OPENROUTER_API_KEY in backend environment variables.',
+                  'API Endpoint Error: The API returned HTML instead of JSON. This usually means the endpoint is incorrect or the service is down.',
+                  'Verify your OPENROUTER_API_KEY is set correctly in backend',
+                  `Check if the model ${MODELS.anthropic} is available in your OpenRouter account`,
+                  'Try switching to Mistral Devstral provider as an alternative',
+                  'Check backend logs for detailed error information'
+                ]
+              });
+            }
             
             // Check for prompt token limit error
             const isPromptTokenError = errorMsg.toLowerCase().includes('prompt tokens') || 
@@ -559,9 +582,25 @@ app.post('/api/generate', async (req, res) => {
               continue; // Try next lower value
             }
             
+            // Check for authentication errors (401, 403)
+            if (errorStatus === 401 || errorStatus === 403 || errorMsg.toLowerCase().includes('unauthorized') || 
+                errorMsg.toLowerCase().includes('invalid api key') || errorMsg.toLowerCase().includes('authentication')) {
+              return sendResponse(401, {
+                error: `OpenRouter API Authentication Failed (GPT OSS 20B): Invalid API key or insufficient permissions.`,
+                detail: errorMsg,
+                suggestions: [
+                  'Check your OPENROUTER_API_KEY in backend environment variables',
+                  'Verify the API key is correct and has not expired',
+                  'Ensure the API key has access to the model openai/gpt-oss-20b:free',
+                  'Get a new API key from https://openrouter.ai/keys if needed',
+                  'Restart the backend server after updating the API key'
+                ]
+              });
+            }
+            
             // If it's not a credit error, break and return error
             console.error(`[${provider}] SDK error:`, sdkErr);
-            return sendResponse(sdkErr?.status || 500, {
+            return sendResponse(errorStatus, {
               error: `OpenRouter API Error (GPT OSS 20B): ${errorMsg}`,
               detail: sdkErr?.error || errorMsg,
             });
@@ -731,12 +770,58 @@ app.post('/api/generate', async (req, res) => {
               continue; // Try next lower value
             }
             
+            // Check if error response contains HTML (usually means server error or invalid endpoint)
+            const errorString = String(sdkErr);
+            const isHtmlError = errorString.includes('<html') || errorString.includes('<!DOCTYPE') || 
+                               (sdkErr?.response?.data && typeof sdkErr.response.data === 'string' && 
+                                (sdkErr.response.data.includes('<html') || sdkErr.response.data.includes('<!DOCTYPE')));
+            
+            const errorStatus = sdkErr?.status || sdkErr?.response?.status || 500;
+            
+            if (isHtmlError || errorStatus === 500) {
+              console.error(`[${provider}] OpenRouter returned HTML error (likely invalid API key or service unavailable):`, errorString.slice(0, 500));
+              // #region agent log
+              debugLog({location:'server/index.js:456',message:'HTML error response from OpenRouter',data:{status:errorStatus,errorMsg:errorMsg},sessionId:'debug-session',runId:'run1',hypothesisId:'E'});
+              // #endregion
+              return sendResponse(500, {
+                error: `API Error (500): Server returned HTML instead of JSON. This usually means the API endpoint is incorrect, API key is invalid, or the service is unavailable.`,
+                detail: `OpenRouter API Error (Mistral Devstral): ${errorMsg}`,
+                suggestions: [
+                  'Invalid API Key: Check your OPENROUTER_API_KEY in backend environment variables.',
+                  'API Endpoint Error: The API returned HTML instead of JSON. This usually means the endpoint is incorrect or the service is down.',
+                  'Verify your OPENROUTER_API_KEY is set correctly in backend',
+                  `Check if the model ${MODELS.deepseek} is available in your OpenRouter account`,
+                  'Try switching to a different provider as an alternative',
+                  'Check backend logs for detailed error information'
+                ]
+              });
+            }
+            
+            // Check for authentication errors (401, 403)
+            if (errorStatus === 401 || errorStatus === 403 || errorMsg.toLowerCase().includes('unauthorized') || 
+                errorMsg.toLowerCase().includes('invalid api key') || errorMsg.toLowerCase().includes('authentication')) {
+              // #region agent log
+              debugLog({location:'server/index.js:456',message:'Authentication error from OpenRouter',data:{status:errorStatus,errorMsg:errorMsg},sessionId:'debug-session',runId:'run1',hypothesisId:'E'});
+              // #endregion
+              return sendResponse(401, {
+                error: `OpenRouter API Authentication Failed (Mistral Devstral): Invalid API key or insufficient permissions.`,
+                detail: errorMsg,
+                suggestions: [
+                  'Check your OPENROUTER_API_KEY in backend environment variables',
+                  'Verify the API key is correct and has not expired',
+                  `Ensure the API key has access to the model ${MODELS.deepseek}`,
+                  'Get a new API key from https://openrouter.ai/keys if needed',
+                  'Restart the backend server after updating the API key'
+                ]
+              });
+            }
+            
             // If it's not a credit error, break and return error
             console.error(`[${provider}] SDK error:`, sdkErr);
             // #region agent log
-            debugLog({location:'server/index.js:456',message:'Returning error response',data:{status:sdkErr?.status||500,errorMsg:errorMsg,willReturn401:sdkErr?.status===401},sessionId:'debug-session',runId:'run1',hypothesisId:'E'});
+            debugLog({location:'server/index.js:456',message:'Returning error response',data:{status:errorStatus,errorMsg:errorMsg,willReturn401:errorStatus===401},sessionId:'debug-session',runId:'run1',hypothesisId:'E'});
             // #endregion
-            return sendResponse(sdkErr?.status || 500, {
+            return sendResponse(errorStatus, {
               error: `OpenRouter API Error (Mistral Devstral): ${errorMsg}`,
               detail: sdkErr?.error || errorMsg,
             });
@@ -746,10 +831,11 @@ app.post('/api/generate', async (req, res) => {
         // If all attempts failed due to credits
         if (!deepseekContent && lastError) {
           const errorMsg = lastError?.error?.message || lastError?.message || String(lastError);
+          const errorStatus = lastError?.status || lastError?.response?.status || 500;
           // #region agent log
-          debugLog({location:'server/index.js:515',message:'All attempts failed, returning error',data:{status:lastError?.status||500,errorMsg:errorMsg,willReturn401:lastError?.status===401},sessionId:'debug-session',runId:'run1',hypothesisId:'E'});
+          debugLog({location:'server/index.js:515',message:'All attempts failed, returning error',data:{status:errorStatus,errorMsg:errorMsg,willReturn401:errorStatus===401},sessionId:'debug-session',runId:'run1',hypothesisId:'E'});
           // #endregion
-          return sendResponse(lastError?.status || 500, {
+          return sendResponse(errorStatus, {
             error: `OpenRouter API Error (Mistral Devstral): ${errorMsg}`,
             detail: lastError?.error || errorMsg,
           });
@@ -836,9 +922,48 @@ app.post('/api/generate', async (req, res) => {
               continue; // Try next lower value
             }
             
+            // Check if error response contains HTML (usually means server error or invalid endpoint)
+            const errorString = String(sdkErr);
+            const isHtmlError = errorString.includes('<html') || errorString.includes('<!DOCTYPE') || 
+                               (sdkErr?.response?.data && typeof sdkErr.response.data === 'string' && 
+                                (sdkErr.response.data.includes('<html') || sdkErr.response.data.includes('<!DOCTYPE')));
+            
+            if (isHtmlError || (sdkErr?.status || 500) === 500) {
+              console.error(`[${provider}] OpenRouter returned HTML error (likely invalid API key or service unavailable):`, errorString.slice(0, 500));
+              return sendResponse(500, {
+                error: `API Error (500): Server returned HTML instead of JSON. This usually means the API endpoint is incorrect, API key is invalid, or the service is unavailable.`,
+                detail: `OpenRouter API Error: ${errorMsg}`,
+                suggestions: [
+                  'Invalid API Key: Check your OPENROUTER_API_KEY in backend environment variables.',
+                  'API Endpoint Error: The API returned HTML instead of JSON. This usually means the endpoint is incorrect or the service is down.',
+                  'Verify your OPENROUTER_API_KEY is set correctly in backend',
+                  `Check if the model ${MODELS.gemini} is available in your OpenRouter account`,
+                  'Try switching to Mistral Devstral provider as an alternative',
+                  'Check backend logs for detailed error information'
+                ]
+              });
+            }
+            
+            // Check for authentication errors (401, 403)
+            const errorStatus = sdkErr?.status || sdkErr?.response?.status || 500;
+            if (errorStatus === 401 || errorStatus === 403 || errorMsg.toLowerCase().includes('unauthorized') || 
+                errorMsg.toLowerCase().includes('invalid api key') || errorMsg.toLowerCase().includes('authentication')) {
+              return sendResponse(401, {
+                error: `OpenRouter API Authentication Failed (GPT OSS 20B): Invalid API key or insufficient permissions.`,
+                detail: errorMsg,
+                suggestions: [
+                  'Check your OPENROUTER_API_KEY in backend environment variables',
+                  'Verify the API key is correct and has not expired',
+                  `Ensure the API key has access to the model ${MODELS.gemini}`,
+                  'Get a new API key from https://openrouter.ai/keys if needed',
+                  'Restart the backend server after updating the API key'
+                ]
+              });
+            }
+            
             // If it's not a credit error, break and return error
             console.error(`[${provider}] SDK error:`, sdkErr);
-            return sendResponse(sdkErr?.status || 500, {
+            return sendResponse(errorStatus, {
               error: `OpenRouter API Error (GPT OSS 20B): ${errorMsg}`,
               detail: sdkErr?.error || errorMsg,
             });
@@ -848,7 +973,8 @@ app.post('/api/generate', async (req, res) => {
         // If all attempts failed due to credits
         if (!geminiContent && lastError) {
           const errorMsg = lastError?.error?.message || lastError?.message || String(lastError);
-          return sendResponse(lastError?.status || 500, {
+          const errorStatus = lastError?.status || lastError?.response?.status || 500;
+          return sendResponse(errorStatus, {
             error: `OpenRouter API Error (GPT OSS 20B): ${errorMsg}`,
             detail: lastError?.error || errorMsg,
           });
