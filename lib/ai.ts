@@ -525,8 +525,11 @@ const formatErrorHtml = (provider: AIProvider, message: string) => {
     const isUnauthorized = message.toLowerCase().includes('401') || message.toLowerCase().includes('unauthorized');
     const isKeyError = message.toLowerCase().includes('invalid') && message.toLowerCase().includes('key');
     const isApiKeyError = message.toLowerCase().includes('api key');
+    const isHtmlError = message.toLowerCase().includes('html') || message.toLowerCase().includes('server returned html') || 
+                       message.toLowerCase().includes('api error (500)');
+    const is500Error = message.toLowerCase().includes('500') || message.toLowerCase().includes('server returned');
     
-    if (isUnauthorized || isKeyError || isApiKeyError) {
+    if (isUnauthorized || isKeyError || isApiKeyError || isHtmlError || is500Error) {
       return `<!-- Error Generating Code --> 
         <div class="text-red-500 bg-red-900/20 p-4 rounded-lg border border-red-500/50">
           <strong>🚫 Mistral Devstral Error</strong>
@@ -535,10 +538,12 @@ const formatErrorHtml = (provider: AIProvider, message: string) => {
           <p class="text-sm mb-3"><strong>Possible Causes & Solutions:</strong></p>
           <ul class="text-sm list-disc list-inside space-y-1 mb-3">
             <li><strong>Invalid OpenRouter API Key:</strong> Mistral Devstral uses OpenRouter API. Check your <code class="bg-black/30 px-1 rounded">OPENROUTER_API_KEY</code> in backend environment variables.</li>
-            <li><strong>API Key Not Set:</strong> Make sure <code class="bg-black/30 px-1 rounded">OPENROUTER_API_KEY</code> is set in your backend <code class="bg-black/30 px-1 rounded">.env</code> file</li>
-            <li><strong>Model Access:</strong> Verify that your OpenRouter API key has access to the model <code class="bg-black/30 px-1 rounded">tngtech/devstral-2512:free</code></li>
+            <li><strong>API Key Not Set:</strong> Make sure <code class="bg-black/30 px-1 rounded">OPENROUTER_API_KEY</code> is set in your backend <code class="bg-black/30 px-1 rounded">.env</code> file or Vercel environment variables</li>
+            <li><strong>Model Access:</strong> Verify that your OpenRouter API key has access to the model <code class="bg-black/30 px-1 rounded">mistralai/devstral-2512:free</code></li>
+            <li><strong>API Endpoint Error:</strong> If you see "Server returned HTML instead of JSON", this usually means the API key is invalid or the service is unavailable</li>
             <li>Get your API key from <a href="https://openrouter.ai/keys" target="_blank" class="text-blue-400 underline">openrouter.ai/keys</a></li>
             <li>Restart your backend server after updating the API key</li>
+            <li>Try switching to GPT OSS 20B provider as an alternative</li>
           </ul>
           <span class="text-xs opacity-70">Note: Mistral Devstral uses OpenRouter API (not DEEPSEEK_API_KEY). Make sure your OPENROUTER_API_KEY is valid and has access to the model.</span>
         </div>`;

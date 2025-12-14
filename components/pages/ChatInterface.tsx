@@ -274,41 +274,88 @@ const extractTextFromErrorHtml = (html: string): string => {
     // Try to get text content
     let text = tempDiv.textContent || tempDiv.innerText || '';
     
-    // If we got text, clean it up
+    // If we got text, clean it up but preserve structure
     if (text.trim().length > 0) {
-      // Remove extra whitespace and newlines
-      text = text.replace(/\s+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
-      return text;
-    }
-    
-    // Fallback: try to extract specific error elements
-    const strongMatch = html.match(/<strong[^>]*>([^<]+)<\/strong>/gi);
-    const pMatch = html.match(/<p[^>]*class="text-sm[^"]*"[^>]*>([^<]+)<\/p>/gi);
-    
-    if (strongMatch || pMatch) {
-      const parts: string[] = [];
-      if (strongMatch) {
-        strongMatch.forEach(m => {
-          const content = m.replace(/<[^>]+>/g, '').trim();
-          if (content) parts.push(content);
-        });
-      }
-      if (pMatch) {
-        pMatch.forEach(m => {
-          const content = m.replace(/<[^>]+>/g, '').trim();
-          if (content) parts.push(content);
-        });
-      }
-      if (parts.length > 0) {
-        return parts.join('\n\n');
+      // Preserve line breaks for better readability
+      text = text
+        .replace(/\n{3,}/g, '\n\n') // Max 2 consecutive newlines
+        .replace(/[ \t]+/g, ' ') // Multiple spaces to single space
+        .trim();
+      
+      // If text is meaningful (more than just whitespace), return it
+      if (text.length > 20) {
+        return text;
       }
     }
     
-    // Last resort: return original HTML
+    // Enhanced extraction: get all important elements
+    const parts: string[] = [];
+    
+    // Extract strong/heading elements (error titles)
+    const strongMatches = html.match(/<strong[^>]*>([^<]+)<\/strong>/gi);
+    if (strongMatches) {
+      strongMatches.forEach(m => {
+        const content = m.replace(/<[^>]+>/g, '').trim();
+        if (content && !parts.includes(content)) {
+          parts.push(content);
+        }
+      });
+    }
+    
+    // Extract paragraph elements
+    const pMatches = html.match(/<p[^>]*class="[^"]*text-sm[^"]*"[^>]*>([^<]+)<\/p>/gi);
+    if (pMatches) {
+      pMatches.forEach(m => {
+        const content = m.replace(/<[^>]+>/g, '').trim();
+        if (content && content.length > 10) {
+          parts.push(content);
+        }
+      });
+    }
+    
+    // Extract list items (suggestions)
+    const liMatches = html.match(/<li[^>]*>([^<]+)<\/li>/gi);
+    if (liMatches) {
+      liMatches.forEach(m => {
+        const content = m.replace(/<[^>]+>/g, '').trim();
+        if (content && content.length > 5) {
+          parts.push(`• ${content}`);
+        }
+      });
+    }
+    
+    // Extract span elements (notes)
+    const spanMatches = html.match(/<span[^>]*class="[^"]*text-xs[^"]*"[^>]*>([^<]+)<\/span>/gi);
+    if (spanMatches) {
+      spanMatches.forEach(m => {
+        const content = m.replace(/<[^>]+>/g, '').trim();
+        if (content && content.length > 10) {
+          parts.push(`Note: ${content}`);
+        }
+      });
+    }
+    
+    // If we extracted meaningful parts, join them
+    if (parts.length > 0) {
+      const result = parts.join('\n\n');
+      if (result.trim().length > 20) {
+        return result;
+      }
+    }
+    
+    // Last resort: try to extract any text from HTML
+    const allText = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (allText.length > 20) {
+      return allText;
+    }
+    
+    // Final fallback: return original HTML (will be displayed as-is)
     return html;
   } catch (error) {
     console.error('Error extracting text from HTML:', error);
-    return html;
+    // Try simple regex extraction as fallback
+    const simpleText = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return simpleText.length > 0 ? simpleText : html;
   }
 };
 
@@ -2151,7 +2198,7 @@ const ChatInterface: React.FC = () => {
         }
         
         // Extract text from response (tutor mode should not have code)
-        let responseText = '';
+        // responseText already declared at line 1950 (outer scope)
         let code: string | null = null;
         
         if (!codeResponse) {
@@ -2201,8 +2248,25 @@ const ChatInterface: React.FC = () => {
             
             // Ensure we have meaningful text
             if (!responseText || responseText.trim().length === 0) {
-              responseText = content; // Fallback to original
+              // Try to extract using DOM again
+              const tempDiv = document.createElement('div');
+              tempDiv.innerHTML = content;
+              const extractedText = tempDiv.textContent || tempDiv.innerText || '';
+              responseText = extractedText.trim() || content; // Fallback to original
             }
+            
+            // Add helpful prefix for error messages in tutor mode
+            if (responseText && !responseText.startsWith('🚫') && !responseText.startsWith('⚠️') && !responseText.startsWith('Error')) {
+              responseText = `🚫 Error: ${responseText}`;
+            }
+            
+            console.log('📚 Tutor mode: Extracted error text', {
+              extractedLength: responseText.length,
+              extractedPreview: responseText.substring(0, 150),
+              originalLength: content.length,
+              isEmpty: !responseText || responseText.trim().length === 0,
+              hasContent: !!content && content.trim().length > 0
+            });
           } else if (!content || content.trim().length === 0) {
             // Empty content
             console.error('📚 Tutor mode: Empty content received from API', {
@@ -2275,12 +2339,25 @@ const ChatInterface: React.FC = () => {
               isErrorResponse
             });
             
-            // Last resort fallback
-            responseText = 'I apologize, but I couldn\'t process the response properly.\n\n' +
-              '**Please try:**\n' +
-              '- Rephrasing your question\n' +
-              '- Checking your internet connection\n' +
-              '- Switching to a different AI provider';
+            // If it's an error response but we couldn't extract text, use a generic error message
+            if (isErrorResponse) {
+              responseText = '🚫 Error: API returned an error response. This usually means:\n\n' +
+                '• Invalid API key - Check your OPENROUTER_API_KEY in backend environment variables\n' +
+                '• Service unavailable - The API service may be down\n' +
+                '• Model access issue - Verify the model is available in your OpenRouter account\n\n' +
+                '**Please try:**\n' +
+                '- Verify your OPENROUTER_API_KEY is set correctly in backend\n' +
+                '- Check if the model is available in your OpenRouter account\n' +
+                '- Try switching to a different AI provider\n' +
+                '- Check backend logs for detailed error information';
+            } else {
+              // Last resort fallback for non-error empty responses
+              responseText = 'I apologize, but I couldn\'t process the response properly.\n\n' +
+                '**Please try:**\n' +
+                '- Rephrasing your question\n' +
+                '- Checking your internet connection\n' +
+                '- Switching to a different AI provider';
+            }
           }
           
           console.log('📚 Tutor mode: Final responseText', { 
@@ -2288,7 +2365,8 @@ const ChatInterface: React.FC = () => {
             responseTextPreview: responseText.substring(0, 100),
             isErrorResponse,
             originalContentLength: content.length,
-            originalContentPreview: content.substring(0, 100)
+            originalContentPreview: content.substring(0, 100),
+            isEmpty: !responseText || responseText.trim().length === 0
           });
           
           // CRITICAL: Ensure responseText is never empty if we have content
@@ -2303,6 +2381,15 @@ const ChatInterface: React.FC = () => {
           
           // Don't set code for tutor mode
           code = null;
+          
+          // Ensure responseText is set before final check
+          if (!responseText || responseText.trim().length === 0) {
+            if (codeResponse?.type === 'single-file' && codeResponse.content) {
+              // Last resort: use content directly
+              console.warn('📚 Tutor mode: responseText is empty, using content directly as fallback');
+              responseText = codeResponse.content;
+            }
+          }
         }
         
         // Clear building state (if it was set)
