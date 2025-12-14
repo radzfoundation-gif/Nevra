@@ -9,6 +9,7 @@ interface PlannerPanelProps {
   onStartGeneration?: () => void;
   onClose?: () => void;
   className?: string;
+  isLoading?: boolean;
 }
 
 const PlannerPanel: React.FC<PlannerPanelProps> = ({
@@ -17,13 +18,16 @@ const PlannerPanel: React.FC<PlannerPanelProps> = ({
   onStartGeneration,
   onClose,
   className,
+  isLoading = false,
 }) => {
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
 
-  if (!plan) {
+  if (isLoading || !plan) {
     return (
-      <div className={clsx("p-6 text-center text-gray-400", className)}>
-        <p>No plan available. Generate a plan first.</p>
+      <div className={clsx("flex flex-col items-center justify-center p-6 text-gray-400", className)}>
+        <Loader2 size={32} className="animate-spin text-purple-400 mb-4" />
+        <p className="text-sm">Generating build plan...</p>
+        <p className="text-xs text-gray-500 mt-2">This may take a few seconds</p>
       </div>
     );
   }

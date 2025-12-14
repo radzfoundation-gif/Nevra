@@ -14,15 +14,15 @@ app.use(
 app.use(express.json({ limit: '12mb' }));
 
 const PROVIDER_KEYS = {
-  groq: process.env.GROQ_API_KEY,
+  groq: process.env.OPENROUTER_API_KEY, // Claude Opus 4.5 via OpenRouter
   deepseek: process.env.DEEPSEEK_API_KEY,
-  openai: process.env.OPENROUTER_API_KEY,
+  openai: process.env.OPENROUTER_API_KEY, // GPT-5.2 via OpenRouter
 };
 
 const MODELS = {
-  groq: 'llama-3.3-70b-versatile',
+  groq: 'anthropic/claude-opus-4.5', // Claude Opus 4.5 via OpenRouter
   deepseek: 'deepseek-chat',
-  openai: 'openai/gpt-4o',
+  openai: 'openai/gpt-5.2-chat', // GPT-5.2 via OpenRouter
 };
 
 // Max tokens configuration (can be overridden via env)
@@ -199,10 +199,13 @@ app.post('/api/generate', async (req, res) => {
       }
       case 'groq':
       default: {
-        url = 'https://api.groq.com/openai/v1/chat/completions';
+        // Use OpenRouter for Claude Opus 4.5 (groq provider)
+        url = 'https://openrouter.ai/api/v1/chat/completions';
         headers = {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${PROVIDER_KEYS.groq}`,
+          'HTTP-Referer': process.env.OPENROUTER_SITE_URL || 'https://rlabs-studio.cloud',
+          'X-Title': process.env.OPENROUTER_SITE_NAME || 'Nevra',
         };
         body = {
           model: MODELS.groq,

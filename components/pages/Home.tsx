@@ -2,20 +2,20 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import Navbar from '../Navbar';
 import { useNavigate } from 'react-router-dom';
-import { Sparkles, ArrowRight, ChevronDown, Paperclip, X, AlertTriangle, Image as ImageIcon, Camera, ImagePlus } from 'lucide-react';
+import { Sparkles, ArrowRight, ChevronDown, Paperclip, X, AlertTriangle, Image as ImageIcon, Camera, ImagePlus, Layout } from 'lucide-react';
 import BentoGrid from '../BentoGrid';
 import Integrations from '../Integrations';
 import CTA from '../CTA';
 import Footer from '../Footer';
 import Background from '../ui/Background';
 import ProviderSelector from '../ui/ProviderSelector';
+import { FlipText } from '../ui/flip-text';
 import { AIProvider } from '@/lib/ai';
 import { useAuth, useUser } from '@clerk/clerk-react';
 import SubscriptionPopup from '../SubscriptionPopup';
 import TokenBadge from '../TokenBadge';
 import { useTokenLimit } from '@/hooks/useTokenLimit';
 import { FREE_TOKEN_LIMIT } from '@/lib/tokenLimit';
-import { useGrokTokenLimit } from '@/hooks/useGrokTokenLimit';
 
 import Sidebar from '../Sidebar';
 import SettingsModal from '../settings/SettingsModal';
@@ -28,7 +28,6 @@ const Home: React.FC = () => {
   const { isSignedIn } = useAuth();
   const { user } = useUser();
   const { hasExceeded, tokensUsed, tokensRemaining, isSubscribed, refreshLimit } = useTokenLimit();
-  const { isGrokLocked } = useGrokTokenLimit();
   const [showSubscriptionPopup, setShowSubscriptionPopup] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false); // Added state for settings modal
@@ -63,7 +62,7 @@ const Home: React.FC = () => {
   }, []);
 
   const [prompt, setPrompt] = useState('');
-  const [provider, setProvider] = useState<AIProvider>('grok');
+  const [provider, setProvider] = useState<AIProvider>('deepseek'); // Default to Mistral Devstral (free)
   const [attachedImages, setAttachedImages] = useState<string[]>([]);
   const MAX_IMAGES = 3;
   const MAX_SIZE_MB = 2;
@@ -263,8 +262,8 @@ const Home: React.FC = () => {
       
       // Store listeners for cleanup
       cameraEventListenersRef.current = [
-        { element: captureBtn, event: 'click', handler: handleCapture },
-        { element: cancelBtn, event: 'click', handler: handleCancel }
+        { element: captureBtn as HTMLElement, event: 'click', handler: handleCapture },
+        { element: cancelBtn as HTMLElement, event: 'click', handler: handleCancel }
       ];
       
     } catch (error: unknown) {
@@ -301,19 +300,200 @@ const Home: React.FC = () => {
     setAttachedImages(prev => prev.filter((_, i) => i !== index));
   };
 
+  // Detect mode from user prompt (same logic as ChatInterface)
+  const detectMode = (text: string): 'builder' | 'tutor' => {
+    if (!text || text.trim().length === 0) return 'tutor';
+    
+    const lowerText = text.toLowerCase().trim();
+    
+    // Exclusion patterns - these should NOT trigger builder mode even if they contain builder keywords
+    // HIGHEST PRIORITY: Clear question patterns that should always be tutor mode
+    const clearQuestionPatterns = [
+      // Question words at the start (highest priority)
+      /^(apa|what|why|how|when|where|who|which|mengapa|kenapa|bagaimana|kapan|dimana|siapa)\s+/i,
+      // Specific question patterns
+      /^(apa itu|apa ini|apa artinya|apa maksudnya|what is|what are|what does|what do)/i,
+      /^(bagaimana cara|bagaimana untuk|how to|how do|how does|how can)/i,
+      /^(jelaskan|terangkan|explain|describe|tell me|teach me)/i,
+      // Learning intent
+      /^(saya ingin belajar|saya perlu belajar|saya ingin tahu|saya perlu tahu|i want to learn|i need to learn)/i,
+    ];
+    
+    // Check clear question patterns FIRST (highest priority)
+    const isClearQuestion = clearQuestionPatterns.some(pattern => pattern.test(text));
+    if (isClearQuestion) {
+      return 'tutor';
+    }
+    
+    const tutorOnlyPatterns = [
+      // Schedule/Planning related (should be tutor mode)
+      /jadwal|schedule|routine|plan|rencana|agenda|kalender|calendar/i,
+      // Learning/Education related
+      /belajar|learn|study|tutorial|panduan|guide|explain|jelaskan/i,
+      // Question patterns
+      /^buatkan\s+(jadwal|schedule|routine|plan|rencana|agenda)/i,
+      /^buat\s+(jadwal|schedule|routine|plan|rencana|agenda)/i,
+      /^tolong\s+(buatkan|buat)\s+(jadwal|schedule|routine|plan)/i,
+      // General help requests (but not edit commands)
+      /^tolong\s+(bantu|help|jelaskan|explain|ajarkan)/i,
+      /^bantu\s+(saya|aku|me|i)/i,
+    ];
+    
+    // Check if text matches tutor-only patterns (second priority)
+    const matchesTutorOnly = tutorOnlyPatterns.some(pattern => pattern.test(text));
+    if (matchesTutorOnly) {
+      return 'tutor';
+    }
+    
+    // Builder keywords - English and Indonesian (only for web/app development)
+    const builderKeywords = [
+      // English - specific tech phrases only
+      'build web', 'build website', 'build app', 'build application', 'build page', 'build site',
+      'create web', 'create website', 'create app', 'create application', 'create page', 'create site',
+      'make web', 'make website', 'make app', 'make application',
+      'generate code', 'generate app', 'generate website',
+      'code', 'app', 'website', 'web app', 'webapp',
+      'landing page', 'landing', 'dashboard', 'component', 'react', 'html', 'css', 'javascript', 'js',
+      'style', 'design', 'ui', 'ux', 'page', 'site', 'application', 'program', 'project',
+      'frontend', 'front-end', 'ui component', 'template', 'layout', 'interface',
+      // Indonesian - specific tech phrases only
+      'buat web', 'buat website', 'buat aplikasi', 'buat app',
+      'buat landing page', 'buat dashboard', 'buat halaman web', 'buat situs', 'buat program',
+      'generate kode', 'kode', 'coding', 'program aplikasi', 'aplikasi web', 'web', 'website', 'situs',
+      'halaman web', 'komponen', 'template web', 'desain web', 'ui', 'frontend',
+      // Edit/Modification commands - these should stay in builder mode
+      'ubah', 'edit', 'ganti', 'modify', 'change', 'update', 'ubah warna', 'ganti warna', 'buat warna',
+      'ubah warna', 'ubah style', 'ubah desain', 'ubah layout', 'ubah background', 'ubah font',
+      'change color', 'change style', 'change design', 'change background', 'change font',
+      'make it', 'make the', 'buat jadi', 'buat menjadi', 'jadikan', 'jadikan warna',
+      'warna kuning', 'warna merah', 'warna biru', 'yellow', 'red', 'blue', 'green', 'warna hijau',
+      'add', 'tambah', 'hapus', 'remove', 'delete', 'tambah button', 'add button', 'tambah gambar'
+    ];
+    
+    // Tutor keywords - Questions and learning intent
+    const tutorKeywords = [
+      // English question words
+      'what', 'why', 'how', 'when', 'where', 'who', 'which', 'explain', 'describe', 'tell me',
+      'teach', 'learn', 'understand', 'help', 'help me', 'can you', 'could you', 'please explain',
+      'what is', 'what are', 'what does', 'what do', 'how to', 'how do', 'how does', 'how can',
+      'why is', 'why are', 'why does', 'why do', 'when is', 'when are', 'when does', 'when do',
+      'where is', 'where are', 'where does', 'where do', 'who is', 'who are', 'who does', 'who do',
+      'which is', 'which are', 'which does', 'which do',
+      // Learning phrases
+      'i want to learn', 'i need to learn', 'i want to know', 'i need to know',
+      'teach me', 'show me', 'guide me', 'tutorial', 'example', 'examples',
+      // Indonesian question words
+      'apa', 'mengapa', 'kenapa', 'bagaimana', 'kapan', 'dimana', 'dimana', 'siapa', 'yang mana',
+      'jelaskan', 'terangkan', 'bantu', 'tolong jelaskan', 'tolong bantu', 'tolong ajarkan',
+      'apa itu', 'apa ini', 'apa artinya', 'apa maksudnya', 'bagaimana cara', 'bagaimana untuk',
+      'kenapa', 'mengapa', 'kapan', 'dimana', 'siapa', 'yang mana',
+      // Indonesian learning phrases
+      'saya ingin belajar', 'saya perlu belajar', 'saya ingin tahu', 'saya perlu tahu',
+      'ajarkan', 'tunjukkan', 'panduan', 'tutorial', 'contoh', 'contohnya',
+      // Schedule/Planning related (should be tutor)
+      'jadwal', 'schedule', 'routine', 'plan', 'rencana', 'agenda', 'kalender', 'calendar',
+      'buatkan jadwal', 'buat jadwal', 'jadwal harian', 'daily schedule', 'morning routine',
+      'evening routine', 'rutinitas', 'rutinitas pagi', 'rutinitas sore'
+    ];
+    
+    // Check for builder intent (only count if NOT in exclusion patterns)
+    const builderScore = builderKeywords.reduce((score, keyword) => {
+      if (lowerText.includes(keyword)) {
+        // Skip if this keyword is part of a tutor-only pattern
+        const isExcluded = tutorOnlyPatterns.some(pattern => {
+          const match = text.match(pattern);
+          return match && match[0].toLowerCase().includes(keyword);
+        });
+        if (isExcluded) return score;
+        
+        // Give higher weight to more specific keywords
+        if (['buat web', 'buat website', 'buat aplikasi', 'build web', 'create website', 'make app'].includes(keyword)) {
+          return score + 3;
+        }
+        return score + 1;
+      }
+      return score;
+    }, 0);
+    
+    // Check for tutor intent (questions)
+    const tutorScore = tutorKeywords.reduce((score, keyword) => {
+      if (lowerText.includes(keyword)) {
+        // Give higher weight to question words at the start
+        if (lowerText.startsWith(keyword) || lowerText.startsWith(keyword + ' ')) {
+          return score + 3;
+        }
+        // Give higher weight to specific question patterns
+        if (['what is', 'what are', 'how to', 'bagaimana cara', 'apa itu'].includes(keyword)) {
+          return score + 2;
+        }
+        // Give higher weight to schedule/routine related keywords
+        if (['jadwal', 'schedule', 'routine', 'plan', 'rencana', 'agenda', 'morning routine', 'evening routine'].includes(keyword)) {
+          return score + 3;
+        }
+        return score + 1;
+      }
+      return score;
+    }, 0);
+    
+    // Check for question mark (strong indicator of tutor mode)
+    const hasQuestionMark = text.includes('?');
+    if (hasQuestionMark && tutorScore > 0) {
+      return 'tutor';
+    }
+    
+    // Check for imperative builder commands
+    const imperativeBuilderPatterns = [
+      /^buat\s+(web|website|aplikasi|app|halaman|situs)/i,
+      /^build\s+(web|website|app|application|page|site)/i,
+      /^create\s+(web|website|app|application|page|site)/i,
+      /^make\s+(web|website|app|application|page|site)/i,
+      /^generate\s+(web|website|app|application|page|site)/i
+    ];
+    
+    const hasImperativeBuilder = imperativeBuilderPatterns.some(pattern => pattern.test(text));
+    if (hasImperativeBuilder) {
+      return 'builder';
+    }
+    
+    // Decision logic
+    if (builderScore > tutorScore && builderScore > 0) {
+      return 'builder';
+    }
+    
+    if (tutorScore > builderScore && tutorScore > 0) {
+      return 'tutor';
+    }
+    
+    // If scores are equal or both zero, check for specific patterns
+    if (builderScore === tutorScore) {
+      // If text contains both, prioritize based on context
+      if (hasQuestionMark) {
+        return 'tutor';
+      }
+      // If starts with builder command, it's builder
+      if (hasImperativeBuilder) {
+        return 'builder';
+      }
+    }
+    
+    // Default to tutor mode for general queries
+    return 'tutor';
+  };
+
   const handleSearch = () => {
     if (!prompt.trim() && attachedImages.length === 0) return;
 
-    // Auto-switch to OpenAI if images are attached (only OpenAI supports vision)
+    // Auto-switch to OpenAI if images are attached - DISABLED FOR TESTING (all providers support images now)
     let effectiveProvider = provider;
-    if (attachedImages.length > 0 && provider !== 'openai') {
-      if (!isSubscribed) {
-        alert('Image analysis requires GPT-4o (OpenAI). Please subscribe to use this feature, or remove the images to use other providers.');
-        return;
-      }
-      effectiveProvider = 'openai';
-      console.log('🖼️ Images detected, switching to OpenAI for vision analysis');
-    }
+    // DISABLED FOR TESTING - Allow images with any provider
+    // if (attachedImages.length > 0 && provider !== 'openai' && provider !== 'grok' && provider !== 'groq') {
+    //   if (!isSubscribed) {
+    //     alert('Image analysis requires GPT-5.2 (OpenAI). Please subscribe to use this feature, or remove the images to use other providers.');
+    //     return;
+    //   }
+    //   effectiveProvider = 'openai';
+    //   console.log('🖼️ Images detected, switching to OpenAI for vision analysis');
+    // }
 
     // Check if user is signed in
     if (!isSignedIn) {
@@ -332,26 +512,37 @@ const Home: React.FC = () => {
       return;
     }
 
-    // Check token limit for non-subscribed users
-    if (!isSubscribed && hasExceeded) {
-      if (!freeFallback) {
-        setShowSubscriptionPopup(true);
-        return;
-      }
-      // Pakai fallback gratis: paksa ke Llama 3
-      if (attachedImages.length === 0) {
-        effectiveProvider = 'groq';
-      }
-    }
+    // Check token limit for non-subscribed users - DISABLED FOR TESTING
+    // if (!isSubscribed && hasExceeded) {
+    //   if (!freeFallback) {
+    //     setShowSubscriptionPopup(true);
+    //     return;
+    //   }
+    //   // Pakai fallback gratis: paksa ke Claude Opus 4.5
+    //   if (attachedImages.length === 0) {
+    //     effectiveProvider = 'groq';
+    //   }
+    // }
 
     // Clear saved prompt once successfully navigating to chat
     localStorage.removeItem('nevra_pending_prompt');
 
+    // Detect mode from user prompt
+    const detectedMode = detectMode(prompt);
+    const isBuilderMode = detectedMode === 'builder';
+
+    // Navigate to chat - only use codebase mode if builder mode is detected
     navigate('/chat', {
       state: {
         initialPrompt: prompt || (attachedImages.length > 0 ? 'Analyze this image' : ''),
         initialProvider: effectiveProvider,
-        initialImages: attachedImages
+        initialImages: attachedImages,
+        // Only set codebase mode if user wants to build/create something
+        ...(isBuilderMode ? {
+          mode: 'codebase',
+          targetFile: 'components/pages/Home.tsx',
+          framework: 'react'
+        } : {})
       }
     });
   };
@@ -391,17 +582,18 @@ const Home: React.FC = () => {
       <Background />
       <Navbar />
 
-      <SubscriptionPopup
+      {/* DISABLED FOR TESTING - SubscriptionPopup modal */}
+      {/* <SubscriptionPopup
         isOpen={showSubscriptionPopup}
         onClose={() => setShowSubscriptionPopup(false)}
         tokensUsed={tokensUsed}
         tokensLimit={FREE_TOKEN_LIMIT}
         onSelectFree={() => {
           setFreeFallback(true);
-          setProvider('groq');
+          setProvider('anthropic');
           setShowSubscriptionPopup(false);
         }}
-      />
+      /> */}
 
       {/* Settings Modal - Rendered at root level to avoid sidebar transform issues */}
       <SettingsModal
@@ -479,12 +671,13 @@ const Home: React.FC = () => {
       <div className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ${isSidebarOpen ? 'md:ml-64' : ''}`}>
 
         {/* Hero Section */}
-        <section className="relative pt-32 pb-20 px-6 overflow-hidden">
-          <div className="max-w-4xl mx-auto text-center relative z-10">
+        <section className="relative flex-1 flex flex-col justify-center items-center min-h-[85vh] px-4 md:px-6 pt-32">
+          <div className="max-w-3xl w-full relative z-10 flex flex-col items-center">
+            
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+              transition={{ duration: 0.5 }}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 mb-8"
             >
               <Sparkles size={16} className="text-purple-400" />
@@ -492,70 +685,47 @@ const Home: React.FC = () => {
             </motion.div>
 
             <motion.h1
-              initial={{ opacity: 0, y: 28 }}
+              initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
-              className="text-5xl md:text-7xl font-display font-bold mb-6 leading-tight"
+              transition={{ duration: 0.5, delay: 0.1 }}
+              className="text-5xl md:text-7xl font-display font-bold mb-6 text-white text-center tracking-tight leading-tight"
             >
               Build{' '}
-              <motion.span
+              <FlipText
+                words={['Faster', 'Better', 'Smarter', 'Stronger', 'Cleaner']}
+                duration={2500}
+                letterDelay={0.08}
+                wordDelay={0.4}
                 className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-fuchsia-400 to-blue-500"
-                style={{ backgroundSize: '200% 200%' }}
-                animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}
-                transition={{ duration: 8, ease: 'linear', repeat: Infinity }}
-              >
-                Faster
-              </motion.span>{' '}
+              />{' '}
               with
               <br />
               NEVRA
             </motion.h1>
 
             <motion.p
-              initial={{ opacity: 0, y: 24 }}
+              initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.9, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
-              className="text-xl text-gray-400 mb-8 max-w-2xl mx-auto leading-relaxed"
+              transition={{ duration: 0.5, delay: 0.2 }}
+              className="text-xl text-gray-400 mb-10 text-center max-w-2xl leading-relaxed"
             >
               Nevra accelerates full-stack development with intelligent AI.
             </motion.p>
 
-            {/* Templates Button */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.2 }}
-              className="mb-12"
-            >
-              <button
-                onClick={() => setShowTemplateBrowser(true)}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500/20 to-blue-500/20 border border-purple-500/30 hover:from-purple-500/30 hover:to-blue-500/30 text-purple-400 hover:text-purple-300 rounded-full font-medium transition-all duration-300"
-              >
-                <Sparkles size={18} />
-                Browse Templates
-              </button>
-            </motion.div>
-
-            {/* Search Bar */}
-            <div className="relative max-w-2xl mx-auto mb-12 animate-fade-in-up delay-300 group">
-              <div className="absolute -inset-1 bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl opacity-20 group-hover:opacity-40 blur transition-opacity duration-500"></div>
-              <div className="relative bg-[#0a0a0a] border border-white/10 rounded-2xl shadow-2xl">
+            {/* Search Bar - Removed overflow-hidden to fix dropdown */}
+            <div className="relative w-full mb-4 animate-fade-in-up delay-100 group">
+              <div className="relative bg-[#0a0a0a] border border-white/10 rounded-xl shadow-2xl transition-all duration-300 group-hover:border-white/20">
+                
                 {/* Attached Images Preview */}
                 {attachedImages.length > 0 && (
-                  <div className="p-4 pb-0">
-                    <div className="flex items-center gap-2 mb-2">
-                      <ImageIcon size={14} className="text-purple-400" />
-                      <span className="text-xs text-purple-400 font-medium">
-                        {attachedImages.length} image{attachedImages.length > 1 ? 's' : ''} ready for AI analysis
-                      </span>
-                    </div>
+                  <div className="p-3 border-b border-white/5 bg-white/[0.02] rounded-t-xl">
                     <div className="flex gap-2 overflow-x-auto scrollbar-none">
                       {attachedImages.map((img, idx) => (
                         <div key={idx} className="relative group/img shrink-0">
-                          <img src={img} alt="Preview" className="w-16 h-16 object-cover rounded-lg border border-purple-500/30 shadow-lg" />
+                          <img src={img} alt="Preview" className="w-12 h-12 object-cover rounded-lg border border-white/10" />
                           <button
                             onClick={() => removeImage(idx)}
-                            className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover/img:opacity-100 transition-opacity"
+                            className="absolute -top-1 -right-1 bg-black/50 hover:bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover/img:opacity-100 transition-all backdrop-blur-sm"
                           >
                             <X size={10} />
                           </button>
@@ -565,7 +735,7 @@ const Home: React.FC = () => {
                   </div>
                 )}
 
-                <div className="relative w-full overflow-hidden rounded-t-2xl">
+                <div className="relative flex items-start">
                   <textarea
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
@@ -576,11 +746,25 @@ const Home: React.FC = () => {
                       }
                     }}
                     placeholder={`How can Nevra ${placeholderText}`}
-                    className="w-full bg-transparent text-white text-lg p-6 pl-12 pb-16 focus:outline-none resize-none placeholder-gray-600 font-sans min-h-[140px]"
+                    className={`w-full bg-transparent text-white text-base md:text-lg p-4 min-h-[60px] md:min-h-[80px] focus:outline-none resize-none placeholder-gray-500 font-sans ${attachedImages.length === 0 ? 'rounded-t-xl' : ''}`}
+                    style={{ minHeight: '100px' }}
                   />
+                  
+                  <div className="absolute bottom-3 right-3">
+                    <button
+                      type="submit"
+                      onClick={handleSearch}
+                      disabled={!prompt.trim() && attachedImages.length === 0}
+                      className="bg-white text-black hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg p-2 transition-colors"
+                    >
+                      <ArrowRight size={18} />
+                    </button>
+                  </div>
+                </div>
 
-                  {/* File Upload Buttons */}
-                  <div className="absolute bottom-4 left-4 flex items-center gap-2">
+                {/* Input Actions Bar */}
+                <div className="flex items-center justify-between px-3 py-2 border-t border-white/5 bg-white/[0.02] rounded-b-xl">
+                  <div className="flex items-center gap-1">
                     <input
                       type="file"
                       ref={fileInputRef}
@@ -590,50 +774,54 @@ const Home: React.FC = () => {
                       capture="environment"
                       onChange={handleFileChange}
                     />
-                    <div className="relative" ref={imageMenuRef}>
-                      <button
-                        type="button"
-                        onClick={() => setShowImageMenu(!showImageMenu)}
-                        className="text-gray-500 hover:text-purple-400 transition-colors p-2 rounded-lg hover:bg-white/5"
-                        title="Attach images for AI analysis"
-                      >
-                        <ImageIcon size={20} />
-                      </button>
-                      {showImageMenu && (
-                        <div className="absolute bottom-full left-0 mb-2 w-52 bg-[#1a1a1a] border border-white/10 rounded-xl shadow-xl overflow-hidden z-50 backdrop-blur-xl">
-                          <button
-                            onClick={handleCameraCapture}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left text-gray-300 hover:bg-white/10 transition-colors whitespace-nowrap"
-                          >
-                            <Camera size={16} className="text-purple-400 shrink-0" />
-                            <span>Take Photo</span>
-                          </button>
-                          <button
-                            onClick={() => {
-                              fileInputRef.current?.click();
-                              setShowImageMenu(false);
-                            }}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left text-gray-300 hover:bg-white/10 transition-colors border-t border-white/5 whitespace-nowrap"
-                          >
-                            <ImagePlus size={16} className="text-blue-400 shrink-0" />
-                            <span>Choose from Gallery</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                    
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="text-gray-500 hover:text-blue-400 transition-colors p-2 rounded-lg hover:bg-white/5"
-                      title="Attach files"
+                      className="flex items-center gap-2 text-xs font-medium text-gray-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-white/5"
                     >
-                      <Paperclip size={20} />
+                      <Paperclip size={14} />
+                      <span>Attach</span>
                     </button>
-                  </div>
-                </div>
 
-                <div className="absolute bottom-4 right-4 flex items-center gap-3 z-20">
-                  {/* Token Badge - Show for signed in users */}
+                    <button
+                      type="button"
+                      onClick={() => setShowImageMenu(!showImageMenu)}
+                      className="flex items-center gap-2 text-xs font-medium text-gray-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-white/5 relative"
+                    >
+                      <Camera size={14} />
+                      <span>Camera</span>
+                      {showImageMenu && (
+                        <div className="absolute bottom-full left-0 mb-2 w-48 bg-[#1a1a1a] border border-white/10 rounded-lg shadow-xl overflow-hidden z-50">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCameraCapture();
+                            }}
+                            className="w-full flex items-center gap-2 px-4 py-3 text-sm text-left text-gray-300 hover:bg-white/10 hover:text-white"
+                          >
+                            <Camera size={14} /> Capture Photo
+                          </button>
+                        </div>
+                      )}
+                    </button>
+
+                    <div className="h-4 w-[1px] bg-white/10 mx-1"></div>
+
+                    <ProviderSelector
+                      value={provider}
+                      onChange={(p) => {
+                        // DISABLED FOR TESTING - Allow all provider selection
+                        // if (p === 'grok' && isGrokLocked && !isSubscribed) {
+                        //   alert('Gemini 3 Pro token limit has been reached.');
+                        //   return;
+                        // }
+                        setProvider(p);
+                      }}
+                      isSubscribed={isSubscribed}
+                    />
+                  </div>
+                  
                   {isSignedIn && (
                     <TokenBadge
                       tokensUsed={tokensUsed}
@@ -642,59 +830,66 @@ const Home: React.FC = () => {
                       compact={true}
                     />
                   )}
-
-                  {/* Provider Selector */}
-                  <ProviderSelector
-                    value={provider}
-                    onChange={(p) => {
-                      // Prevent selecting Grok if locked
-                      if (p === 'grok' && isGrokLocked && !isSubscribed) {
-                        alert('Kimi K2 token limit has been reached. Please recharge tokens to use Kimi K2, or select another provider.');
-                        return;
-                      }
-                      setProvider(p);
-                    }}
-                    isSubscribed={isSubscribed}
-                  />
-
-                  <button
-                    type="submit"
-                    onClick={handleSearch}
-                    disabled={!prompt.trim() && attachedImages.length === 0}
-                    className="bg-white text-black hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg p-2 transition-colors cursor-pointer"
-                  >
-                    <ArrowRight size={20} />
-                  </button>
                 </div>
               </div>
-
-              {/* Suggested Prompts */}
-              <div className="mt-6 flex flex-wrap justify-center gap-3 relative z-30">
-                {suggestedPrompts.map((p, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setPrompt(p)}
-                    className="text-xs bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/20 px-4 py-2 rounded-full transition-all text-gray-400 hover:text-white"
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
             </div>
+
+            {/* Quick Actions Buttons */}
+            <div className="flex flex-wrap justify-center gap-3 mt-4 animate-fade-in-up delay-200">
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] hover:bg-[#252525] border border-white/10 rounded-lg text-sm text-gray-400 hover:text-white transition-all"
+              >
+                <ImageIcon size={14} />
+                <span>Clone a Screenshot</span>
+              </button>
+              <button 
+                onClick={() => setPrompt("Create a landing page for ")}
+                className="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] hover:bg-[#252525] border border-white/10 rounded-lg text-sm text-gray-400 hover:text-white transition-all"
+              >
+                <Layout size={14} /> {/* Assuming Layout icon is imported, if not I'll use Sparkles */}
+                <span>Landing Page</span>
+              </button>
+              <button 
+                onClick={() => setShowTemplateBrowser(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] hover:bg-[#252525] border border-white/10 rounded-lg text-sm text-gray-400 hover:text-white transition-all"
+              >
+                <Sparkles size={14} />
+                <span>Templates</span>
+              </button>
+            </div>
+
           </div>
 
-          {isSignedIn && !isSubscribed && hasExceeded && (
-            <div className="mt-4 max-w-2xl mx-auto text-sm text-amber-300 bg-amber-500/10 border border-amber-500/30 px-4 py-3 rounded-xl flex items-center gap-2 animate-fade-in-up delay-350">
-              <AlertTriangle size={16} className="text-amber-400" />
-              Free quota reached. Upgrade to continue generating with Nevra.
+          {/* DISABLED FOR TESTING - Token limit warning */}
+          {/* {isSignedIn && !isSubscribed && hasExceeded && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-xs text-amber-400/80 flex items-center gap-2 bg-amber-900/20 px-3 py-1.5 rounded-full border border-amber-900/30">
+              <AlertTriangle size={12} />
+              Free quota reached. Upgrade to continue.
             </div>
-          )}
+          )} */}
         </section>
 
-        <BentoGrid />
-        <Integrations />
-        <CTA />
-        <Footer />
+        {/* Community Section */}
+        <div className="px-6 md:px-12 pb-12 w-full max-w-[1400px] mx-auto">
+            <div className="flex justify-between items-end mb-8 border-b border-white/5 pb-4">
+                <div>
+                    <h2 className="text-xl font-semibold text-white mb-1">From the Community</h2>
+                    <p className="text-sm text-gray-500">Explore what the community is building with Nevra.</p>
+                </div>
+                <button className="text-sm text-gray-500 hover:text-white transition-colors flex items-center gap-1">
+                  Browse All <ArrowRight size={14} />
+                </button>
+            </div>
+            <BentoGrid />
+        </div>
+
+        {/* Footer Sections - Reduced opacity to keep focus on top */}
+        <div className="opacity-50 hover:opacity-100 transition-opacity duration-500">
+          <Integrations />
+          <CTA />
+          <Footer />
+        </div>
       </div>
 
       {/* Template Browser Modal */}

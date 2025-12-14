@@ -5,7 +5,11 @@ import {
   Github, 
   Clock, 
   ChevronDown,
-  MoreVertical
+  MoreVertical,
+  Palette,
+  Database,
+  Globe,
+  Smartphone
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -13,6 +17,10 @@ interface WorkspaceMenuProps {
   onOpenComponents: () => void;
   onOpenGitHub: () => void;
   onOpenHistory: () => void;
+  onOpenDesignSystem?: () => void;
+  onOpenDatabase?: () => void;
+  onOpenAPI?: () => void;
+  onOpenMobile?: () => void;
   className?: string;
 }
 
@@ -20,6 +28,10 @@ const WorkspaceMenu: React.FC<WorkspaceMenuProps> = ({
   onOpenComponents,
   onOpenGitHub,
   onOpenHistory,
+  onOpenDesignSystem,
+  onOpenDatabase,
+  onOpenAPI,
+  onOpenMobile,
   className,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -46,6 +58,42 @@ const WorkspaceMenu: React.FC<WorkspaceMenuProps> = ({
       icon: Code,
       onClick: () => {
         onOpenComponents();
+        setIsOpen(false);
+      },
+    },
+    {
+      id: 'design-system',
+      label: 'Design System',
+      icon: Palette,
+      onClick: () => {
+        onOpenDesignSystem?.();
+        setIsOpen(false);
+      },
+    },
+    {
+      id: 'database',
+      label: 'Database',
+      icon: Database,
+      onClick: () => {
+        onOpenDatabase?.();
+        setIsOpen(false);
+      },
+    },
+    {
+      id: 'api',
+      label: 'API Integration',
+      icon: Globe,
+      onClick: () => {
+        onOpenAPI?.();
+        setIsOpen(false);
+      },
+    },
+    {
+      id: 'mobile',
+      label: 'Mobile Generator',
+      icon: Smartphone,
+      onClick: () => {
+        onOpenMobile?.();
         setIsOpen(false);
       },
     },

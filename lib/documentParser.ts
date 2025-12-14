@@ -40,7 +40,9 @@ export async function parseDocument(
     });
 
     if (!response.ok) {
-      throw new Error(`Document parsing failed: ${response.statusText}`);
+      const errorData = await response.json().catch(() => ({}));
+      const errorMessage = errorData.message || errorData.error || response.statusText;
+      throw new Error(`Document parsing failed: ${errorMessage}`);
     }
 
     const data = await response.json();

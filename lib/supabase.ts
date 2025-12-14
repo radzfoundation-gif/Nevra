@@ -10,13 +10,24 @@ if (!supabaseUrl || !supabaseAnonKey) {
     );
 }
 
-// Create Supabase client
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-    auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-    },
-});
+// Create Supabase client (singleton to avoid multiple instances)
+// Use module-level variable to ensure singleton across all imports
+let supabaseInstance: ReturnType<typeof createClient> | null = null;
+
+function getSupabaseInstance() {
+    if (!supabaseInstance) {
+        supabaseInstance = createClient(supabaseUrl, supabaseAnonKey, {
+            auth: {
+                persistSession: true,
+                autoRefreshToken: true,
+                storageKey: 'nevra-supabase-auth', // Unique storage key to avoid conflicts
+            },
+        });
+    }
+    return supabaseInstance;
+}
+
+export const supabase = getSupabaseInstance();
 
 export const createAuthenticatedClient = (token: string) => {
     return createClient(supabaseUrl, supabaseAnonKey, {
@@ -43,7 +54,7 @@ export interface ChatSession {
     user_id: string;
     title: string;
     mode: 'builder' | 'tutor';
-    provider: 'groq' | 'deepseek' | 'openai';
+    provider: 'anthropic' | 'deepseek' | 'openai' | 'gemini';
     created_at: string;
     updated_at: string;
 }

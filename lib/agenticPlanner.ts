@@ -26,13 +26,17 @@ export interface Plan {
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 
 /**
- * Generate a plan from user prompt
+ * Generate a plan from user prompt with timeout
  */
 export async function generatePlan(
   prompt: string,
-  provider: 'groq' | 'grok' | 'openai' = 'groq'
+  provider: 'anthropic' | 'gemini' | 'openai' | 'deepseek' = 'deepseek' // Default to Mistral Devstral
 ): Promise<Plan> {
   try {
+    // Create abort controller for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+
     const response = await fetch(`${API_BASE}/plan`, {
       method: 'POST',
       headers: {
@@ -42,7 +46,10 @@ export async function generatePlan(
         prompt,
         provider,
       }),
+      signal: controller.signal,
     });
+
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       throw new Error(`Planning failed: ${response.statusText}`);
@@ -57,9 +64,16 @@ export async function generatePlan(
       createdAt: new Date(data.createdAt || Date.now()),
       updatedAt: new Date(data.updatedAt || Date.now()),
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error('Planning error:', error);
-    // Return a basic plan as fallback
+    
+    // If timeout or network error, use fallback immediately
+    if (error.name === 'AbortError' || error.message?.includes('timeout') || error.message?.includes('network')) {
+      console.warn('Planning timeout, using fallback plan');
+      return createFallbackPlan(prompt);
+    }
+    
+    // Return a basic plan as fallback for any error
     return createFallbackPlan(prompt);
   }
 }
@@ -67,7 +81,7 @@ export async function generatePlan(
 /**
  * Create a fallback plan if AI planning fails
  */
-function createFallbackPlan(prompt: string): Plan {
+export function createFallbackPlan(prompt: string): Plan {
   const tasks: Task[] = [
     {
       id: '1',

@@ -118,7 +118,7 @@ export function useTokenLimit() {
         checkLimit();
 
         // Real-time subscription untuk auto-update token usage
-        let channel: any = null;
+        let channel: ReturnType<typeof supabase.channel> | null = null;
         
         try {
             channel = supabase
@@ -228,7 +228,7 @@ export function useTrackAIUsage() {
 
     const trackUsage = async (
         sessionId: string,
-        provider: 'groq' | 'deepseek' | 'openai' | 'grok',
+        provider: 'anthropic' | 'deepseek' | 'openai' | 'gemini',
         model?: string
     ) => {
         if (!user) return false;

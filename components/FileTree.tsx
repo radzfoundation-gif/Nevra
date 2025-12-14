@@ -57,7 +57,11 @@ const FileTree: React.FC<FileTreeProps> = ({
     const tree: { [key: string]: TreeNode } = {};
 
     files.forEach(file => {
-      const parts = file.path.split('/').filter(p => p);
+      // Ensure path is always a string
+      const filePath = typeof file?.path === 'string' ? file.path : String(file?.path || '');
+      if (!filePath) return; // Skip invalid files
+      
+      const parts = filePath.split('/').filter(p => p);
       let current = tree;
 
       parts.forEach((part, index) => {
@@ -65,9 +69,9 @@ const FileTree: React.FC<FileTreeProps> = ({
           // File
           current[part] = {
             name: part,
-            path: file.path,
+            path: filePath,
             type: 'file',
-            fileType: file.type,
+            fileType: file?.type || 'other',
           };
         } else {
           // Directory
@@ -91,7 +95,7 @@ const FileTree: React.FC<FileTreeProps> = ({
 
   // Auto-expand directories containing selected file
   useEffect(() => {
-    if (selectedFile) {
+    if (selectedFile && typeof selectedFile === 'string') {
       const parts = selectedFile.split('/').filter(p => p);
       const paths: string[] = [];
       for (let i = 1; i < parts.length; i++) {
@@ -169,13 +173,15 @@ const FileTree: React.FC<FileTreeProps> = ({
 
   const handleRename = (path: string) => {
     setRenamingPath(path);
-    setRenameValue(path.split('/').pop() || '');
+    const safePath = typeof path === 'string' ? path : String(path || '');
+    setRenameValue(safePath.split('/').pop() || '');
     setContextMenu(null);
   };
 
   const confirmRename = () => {
     if (renamingPath && renameValue && onRenameFile) {
-      const parts = renamingPath.split('/');
+      const safePath = typeof renamingPath === 'string' ? renamingPath : String(renamingPath || '');
+      const parts = safePath.split('/');
       parts[parts.length - 1] = renameValue;
       const newPath = parts.join('/');
       onRenameFile(renamingPath, newPath);

@@ -4,12 +4,58 @@ import Footer from '../Footer';
 import Background from '../ui/Background';
 import { Check } from 'lucide-react';
 import { detectCurrency, getPremiumPricing, formatCurrency } from '@/lib/currency';
+import { useUser } from '@clerk/clerk-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 const PricingPage: React.FC = () => {
+  const { user, isSignedIn } = useUser();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [currency, setCurrency] = useState<'USD' | 'IDR'>('USD');
   const [loadingCurrency, setLoadingCurrency] = useState(true);
+  const [isSubscribed, setIsSubscribed] = useState(false);
+
+  // Check for success/cancel from Stripe
+  useEffect(() => {
+    const success = searchParams.get('success');
+    const canceled = searchParams.get('canceled');
+    
+    if (success === 'true') {
+      setError(null);
+      // Refresh subscription status
+      if (user?.id) {
+        checkSubscriptionStatus();
+      }
+      // Remove query params
+      navigate('/pricing', { replace: true });
+    } else if (canceled === 'true') {
+      setError('Payment was canceled. You can try again anytime.');
+      navigate('/pricing', { replace: true });
+    }
+  }, [searchParams, user, navigate]);
+
+  // Check subscription status
+  const checkSubscriptionStatus = async () => {
+    if (!user?.id) return;
+    
+    try {
+      const resp = await fetch(`/api/payment/subscription?userId=${user.id}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        setIsSubscribed(data.isActive);
+      }
+    } catch (e) {
+      console.error('Error checking subscription:', e);
+    }
+  };
+
+  useEffect(() => {
+    if (user?.id) {
+      checkSubscriptionStatus();
+    }
+  }, [user?.id]);
 
   useEffect(() => {
     // Detect currency on mount
@@ -30,6 +76,13 @@ const PricingPage: React.FC = () => {
       return;
     }
 
+    // Check if user is signed in
+    if (!isSignedIn || !user) {
+      setError('Please sign in to subscribe to Premium');
+      navigate('/sign-in', { state: { from: '/pricing' } });
+      return;
+    }
+
     setError(null);
     setLoadingPlan(plan);
     try {
@@ -40,22 +93,54 @@ const PricingPage: React.FC = () => {
           plan: 'premium',
           currency,
           amount: premiumPricing.amount,
+          userId: user.id,
         }),
       });
       if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(text || 'Failed to create checkout session');
+        const errorData = await resp.json().catch(() => ({ error: 'Failed to create checkout session' }));
+        throw new Error(errorData.error || 'Failed to create checkout session');
       }
       const data = await resp.json();
-      if (data?.checkout_url || data?.invoice_url) {
-        window.location.href = data.checkout_url || data.invoice_url;
+      if (data?.checkout_url) {
+        // Redirect to Stripe Checkout
+        window.location.href = data.checkout_url;
       } else {
         throw new Error('Invalid checkout response');
       }
     } catch (e: unknown) {
       const errorMessage = e instanceof Error ? e.message : 'Unable to start checkout. Please try again.';
       setError(errorMessage);
-    } finally {
+      setLoadingPlan(null);
+    }
+  };
+
+  const handleManageSubscription = async () => {
+    if (!isSignedIn || !user) {
+      setError('Please sign in to manage your subscription');
+      return;
+    }
+
+    setError(null);
+    setLoadingPlan('manage');
+    try {
+      const resp = await fetch('/api/payment/portal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id }),
+      });
+      if (!resp.ok) {
+        const errorData = await resp.json().catch(() => ({ error: 'Failed to create portal session' }));
+        throw new Error(errorData.error || 'Failed to create portal session');
+      }
+      const data = await resp.json();
+      if (data?.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error('Invalid portal response');
+      }
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : 'Unable to open subscription portal. Please try again.';
+      setError(errorMessage);
       setLoadingPlan(null);
     }
   };
@@ -141,12 +226,21 @@ const PricingPage: React.FC = () => {
                   </li>
                 ))}
               </ul>
-              <button
-                className="w-full py-3 rounded-lg bg-purple-600 text-white hover:bg-purple-500 transition-colors font-medium shadow-lg shadow-purple-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
-                onClick={() => handleCheckout('premium')}
-                disabled={loadingPlan === 'premium' || loadingCurrency}>
-                {loadingPlan === 'premium' ? 'Processing...' : 'Get Premium'}
-              </button>
+              {isSubscribed ? (
+                <button
+                  className="w-full py-3 rounded-lg bg-green-600 text-white hover:bg-green-500 transition-colors font-medium shadow-lg shadow-green-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={handleManageSubscription}
+                  disabled={loadingPlan === 'manage' || loadingCurrency}>
+                  {loadingPlan === 'manage' ? 'Loading...' : 'Manage Subscription'}
+                </button>
+              ) : (
+                <button
+                  className="w-full py-3 rounded-lg bg-purple-600 text-white hover:bg-purple-500 transition-colors font-medium shadow-lg shadow-purple-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => handleCheckout('premium')}
+                  disabled={loadingPlan === 'premium' || loadingCurrency}>
+                  {loadingPlan === 'premium' ? 'Processing...' : 'Get Premium'}
+                </button>
+              )}
             </div>
           </div>
           {error && (

@@ -2,14 +2,14 @@ import { supabase, createAuthenticatedClient } from './supabase';
 
 // Token costs per provider (estimated)
 const TOKEN_COSTS = {
-    groq: 10,      // 10 tokens per request
+    anthropic: 10,      // 10 tokens per request (Claude Sonnet 4.5 via OpenRouter)
     deepseek: 10,    // 10 tokens per request
     openai: 10,    // 10 tokens per request
-    grok: 10,      // 10 tokens per request (Kimi K2 via Groq)
+    gemini: 10,      // 10 tokens per request (Claude Sonnet 4.5 via OpenRouter)
 };
 
-// Free tier limit (tokens). 20 prompt * ~10 tokens = 200 tokens.
-export const FREE_TOKEN_LIMIT = 200;
+// Free tier limit (tokens). Temporarily disabled for testing - set to very high value
+export const FREE_TOKEN_LIMIT = 999999999;
 
 // Helpers: WIB (UTC+7) date boundaries
 const getWIBBounds = (date: Date = new Date()) => {
@@ -94,7 +94,7 @@ export async function checkTokenLimit(userId: string, token?: string | null): Pr
 export async function trackAIUsage(
     userId: string,
     sessionId: string,
-    provider: 'groq' | 'deepseek' | 'openai' | 'grok',
+    provider: 'anthropic' | 'deepseek' | 'openai' | 'gemini',
     model?: string,
     token?: string | null
 ): Promise<boolean> {

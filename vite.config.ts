@@ -28,6 +28,19 @@ export default defineConfig(({ mode }) => {
       alias: {
         '@': path.resolve(__dirname, '.'),
       }
-    }
+    },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+            'ui-vendor': ['framer-motion', 'lucide-react'],
+            'editor-vendor': ['@monaco-editor/react', 'react-syntax-highlighter'],
+            'ai-vendor': ['openai', 'groq-sdk'],
+          },
+        },
+      },
+      chunkSizeWarningLimit: 1000,
+    },
   };
 });

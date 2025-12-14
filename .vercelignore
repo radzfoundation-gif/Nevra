@@ -1,0 +1,12 @@
+node_modules
+.env.local
+.env
+.cursor
+*.md
+*.sql
+test-*.js
+test-*.cjs
+server.cjs
+app.js
+Procfile
+railway.json

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useUser, useAuth } from '@clerk/clerk-react';
 import {
     getUserSessions,
@@ -24,51 +24,13 @@ export function useChatSessions() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    useEffect(() => {
-        if (!user) {
-            setSessions([]);
-            setLoading(false);
-            return;
-        }
-
-        loadSessions();
-
-        // Real-time subscription (unauthenticated). Still useful for reflect changes made by this client.
-        const channel = supabase
-            .channel('chat_sessions_changes')
-            .on(
-                'postgres_changes',
-                {
-                    event: '*',
-                    schema: 'public',
-                    table: 'chat_sessions',
-                    filter: `user_id=eq.${user.id}`,
-                },
-                (payload) => {
-                    if (payload.eventType === 'INSERT') {
-                        setSessions((prev) => [payload.new as ChatSession, ...prev]);
-                    } else if (payload.eventType === 'DELETE') {
-                        setSessions((prev) => prev.filter((s) => s.id !== payload.old.id));
-                    } else if (payload.eventType === 'UPDATE') {
-                        setSessions((prev) =>
-                            prev.map((s) => (s.id === payload.new.id ? (payload.new as ChatSession) : s))
-                        );
-                    }
-                }
-            )
-            .subscribe();
-
-        return () => {
-            supabase.removeChannel(channel);
-        };
-    }, [user]);
-
-    const loadSessions = async () => {
+    const loadSessions = useCallback(async () => {
         if (!user) return;
 
         try {
             setLoading(true);
             setError(null);
+            // Get Clerk JWT token first (needed for both sync and queries)
             let token;
             try {
                 token = await getToken({ template: SUPABASE_TEMPLATE });
@@ -78,6 +40,19 @@ export function useChatSessions() {
                 setLoading(false);
                 return;
             }
+
+            // Ensure user is synced to Supabase (helps cross-device access)
+            // Pass token to syncUser to bypass RLS policy
+            try {
+                await syncUser({
+                    id: user.id,
+                    emailAddresses: user.emailAddresses,
+                    fullName: user.fullName,
+                    imageUrl: user.imageUrl,
+                }, token);
+            } catch (e) {
+                console.warn('Sync user to Supabase failed (non-fatal):', e);
+            }
             const data = await getUserSessions(user.id, token);
             setSessions(data);
         } catch (err) {
@@ -86,7 +61,63 @@ export function useChatSessions() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [user, getToken]);
+
+    useEffect(() => {
+        if (!user) {
+            setSessions([]);
+            setLoading(false);
+            return;
+        }
+
+        loadSessions();
+
+        // Real-time subscription with better error handling
+        let channel: ReturnType<typeof supabase.channel> | null = null;
+        try {
+            channel = supabase
+                .channel(`chat_sessions_${user.id}`)
+                .on(
+                    'postgres_changes',
+                    {
+                        event: '*',
+                        schema: 'public',
+                        table: 'chat_sessions',
+                        filter: `user_id=eq.${user.id}`,
+                    },
+                    (payload) => {
+                        console.log('📡 Real-time session update:', payload.eventType, payload.new || payload.old);
+                        if (payload.eventType === 'INSERT') {
+                            setSessions((prev) => {
+                                // Check if session already exists to avoid duplicates
+                                const exists = prev.some(s => s.id === (payload.new as ChatSession).id);
+                                if (exists) return prev;
+                                return [(payload.new as ChatSession), ...prev];
+                            });
+                        } else if (payload.eventType === 'DELETE') {
+                            setSessions((prev) => prev.filter((s) => s.id !== (payload.old as ChatSession).id));
+                        } else if (payload.eventType === 'UPDATE') {
+                            setSessions((prev) =>
+                                prev.map((s) => (s.id === (payload.new as ChatSession).id ? (payload.new as ChatSession) : s))
+                            );
+                        }
+                    }
+                )
+                .subscribe((status, err) => {
+                    if (err) {
+                        console.warn('⚠️ Real-time subscription error:', err);
+                    } else {
+                        console.log('📡 Real-time subscription status:', status);
+                    }
+                });
+        } catch (error) {
+            console.warn('⚠️ Failed to setup real-time subscription:', error);
+        }
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [user, loadSessions]);
 
     const refreshSessions = () => {
         loadSessions();
@@ -114,17 +145,7 @@ export function useChatMessages(sessionId: string | null) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    useEffect(() => {
-        if (!sessionId) {
-            setMessages([]);
-            setLoading(false);
-            return;
-        }
-
-        loadMessages();
-    }, [sessionId]);
-
-    const loadMessages = async () => {
+    const loadMessages = useCallback(async () => {
         if (!sessionId) return;
 
         try {
@@ -138,7 +159,17 @@ export function useChatMessages(sessionId: string | null) {
         } finally {
             setLoading(false);
         }
-    };
+    }, [sessionId]);
+
+    useEffect(() => {
+        if (!sessionId) {
+            setMessages([]);
+            setLoading(false);
+            return;
+        }
+
+        loadMessages();
+    }, [sessionId, loadMessages]);
 
     const refreshMessages = () => {
         loadMessages();
@@ -156,17 +187,7 @@ export function useUserPreferences() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    useEffect(() => {
-        if (!user) {
-            setPreferences(null);
-            setLoading(false);
-            return;
-        }
-
-        loadPreferences();
-    }, [user]);
-
-    const loadPreferences = async () => {
+    const loadPreferences = useCallback(async () => {
         if (!user) return;
 
         try {
@@ -180,7 +201,17 @@ export function useUserPreferences() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [user]);
+
+    useEffect(() => {
+        if (!user) {
+            setPreferences(null);
+            setLoading(false);
+            return;
+        }
+
+        loadPreferences();
+    }, [user, loadPreferences]);
 
     const refreshPreferences = () => {
         loadPreferences();
@@ -194,6 +225,7 @@ export function useUserPreferences() {
  */
 export function useUserSync() {
     const { user } = useUser();
+    const { getToken } = useAuth();
     const [synced, setSynced] = useState(false);
 
     useEffect(() => {
@@ -204,12 +236,20 @@ export function useUserSync() {
 
         const sync = async () => {
             try {
+                // Get Clerk JWT token for authenticated Supabase request
+                let token: string | null = null;
+                try {
+                    token = await getToken({ template: SUPABASE_TEMPLATE });
+                } catch (e) {
+                    console.warn('Clerk Supabase template missing, syncing without token (may fail due to RLS):', e);
+                }
+                
                 await syncUser({
                     id: user.id,
                     emailAddresses: user.emailAddresses,
                     fullName: user.fullName,
                     imageUrl: user.imageUrl,
-                });
+                }, token);
                 setSynced(true);
             } catch (error) {
                 console.error('Failed to sync user:', error);
@@ -217,7 +257,7 @@ export function useUserSync() {
         };
 
         sync();
-    }, [user]);
+    }, [user, getToken]);
 
     return { synced };
 }

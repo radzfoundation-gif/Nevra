@@ -80,7 +80,8 @@ export function convertToTypeScript(jsx: string): string {
       const typedParams = params.split(',').map((p: string) => {
         const trimmed = p.trim();
         if (!trimmed.includes(':')) {
-          return `${trimmed}: any`;
+          // Infer basic type from parameter name or use unknown
+          return `${trimmed}: unknown`;
         }
         return trimmed;
       }).join(', ');
@@ -94,7 +95,7 @@ export function convertToTypeScript(jsx: string): string {
     (match, name, props) => {
       const propNames = props.split(',').map((p: string) => p.trim().split(':')[0].trim());
       const interfaceName = `${name}Props`;
-      const interfaceDef = `interface ${interfaceName} {\n  ${propNames.map((p: string) => `${p}: any;`).join('\n  ')}\n}\n\n`;
+      const interfaceDef = `interface ${interfaceName} {\n  ${propNames.map((p: string) => `${p}: unknown;`).join('\n  ')}\n}\n\n`;
       return interfaceDef + match.replace(`{${props}}`, `props: ${interfaceName}`);
     }
   );
@@ -112,9 +113,9 @@ export function addTypeAnnotations(code: string): string {
   annotated = annotated.replace(
     /const\s+\[(\w+),\s*set\w+\]\s*=\s*useState\(([^)]+)\)/g,
     (match, varName, initialValue) => {
-      let type = 'any';
-      if (initialValue.includes('[')) type = 'any[]';
-      if (initialValue.includes('{')) type = 'Record<string, any>';
+      let type = 'unknown';
+      if (initialValue.includes('[')) type = 'unknown[]';
+      if (initialValue.includes('{')) type = 'Record<string, unknown>';
       if (initialValue.includes("'") || initialValue.includes('"')) type = 'string';
       if (/^\d+$/.test(initialValue.trim())) type = 'number';
       if (initialValue === 'true' || initialValue === 'false') type = 'boolean';

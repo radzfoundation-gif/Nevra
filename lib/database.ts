@@ -7,7 +7,7 @@ export type { User, ChatSession, Message, UserPreferences };
 export interface UserApiKey {
     id: string;
     user_id: string;
-    provider: 'groq' | 'deepseek' | 'openai' | 'openai_image' | 'kimi';
+    provider: 'anthropic' | 'deepseek' | 'openai' | 'openai_image' | 'gemini';
     api_key_encrypted: string;
     is_active: boolean;
     auto_route_for: string[];
@@ -23,15 +23,22 @@ export interface UserApiKey {
 
 /**
  * Sync Clerk user to Supabase
+ * @param clerkUser - Clerk user data
+ * @param token - Optional Clerk JWT token for authenticated requests (required for RLS)
  */
-export async function syncUser(clerkUser: {
-    id: string;
-    emailAddresses: { emailAddress: string }[];
-    fullName: string | null;
-    imageUrl: string | null;
-}): Promise<User | null> {
+export async function syncUser(
+    clerkUser: {
+        id: string;
+        emailAddresses: { emailAddress: string }[];
+        fullName: string | null;
+        imageUrl: string | null;
+    },
+    token?: string | null
+): Promise<User | null> {
     try {
-        const { data, error } = await supabase
+        // Use authenticated client if token provided, otherwise use anon client
+        const client = token ? createAuthenticatedClient(token) : supabase;
+        const { data, error } = await client
             .from('users')
             .upsert({
                 id: clerkUser.id,
@@ -80,7 +87,7 @@ export async function getUser(userId: string): Promise<User | null> {
 export async function createChatSession(
     userId: string,
     mode: 'builder' | 'tutor',
-    provider: 'groq' | 'deepseek' | 'openai' | 'grok',
+    provider: 'anthropic' | 'deepseek' | 'openai' | 'gemini',
     title: string = 'New Chat',
     token?: string | null
 ): Promise<ChatSession | null> {
@@ -158,6 +165,25 @@ export async function updateSessionTitle(sessionId: string, title: string): Prom
         return true;
     } catch (error) {
         console.error('Error updating session title:', error);
+        return false;
+    }
+}
+
+/**
+ * Update chat session mode
+ */
+export async function updateSessionMode(sessionId: string, mode: 'builder' | 'tutor', token?: string | null): Promise<boolean> {
+    try {
+        const client = token ? createAuthenticatedClient(token) : supabase;
+        const { error } = await client
+            .from('chat_sessions')
+            .update({ mode, updated_at: new Date().toISOString() })
+            .eq('id', sessionId);
+
+        if (error) throw error;
+        return true;
+    } catch (error) {
+        console.error('Error updating session mode:', error);
         return false;
     }
 }
@@ -300,7 +326,7 @@ async function createDefaultPreferences(userId: string): Promise<UserPreferences
             .from('user_preferences')
             .insert({
                 user_id: userId,
-                default_provider: 'groq',
+                default_provider: 'anthropic',
                 theme: 'dark',
                 preferences: {},
             })

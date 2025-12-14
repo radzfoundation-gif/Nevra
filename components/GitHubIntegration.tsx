@@ -20,6 +20,7 @@ import {
   pushToRepository,
   exportProjectForGitHub,
   GitHubRepo,
+  GitHubAutoSync,
 } from '@/lib/github';
 import { ProjectFile } from '@/lib/fileManager';
 import clsx from 'clsx';
@@ -50,6 +51,10 @@ const GitHubIntegration: React.FC<GitHubIntegrationProps> = ({
   const [showCreateRepo, setShowCreateRepo] = useState(false);
   const [commitMessage, setCommitMessage] = useState('Update from NEVRA');
   const [branch, setBranch] = useState('main');
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
+  const [autoSyncStatus, setAutoSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
+  const [autoSyncMessage, setAutoSyncMessage] = useState<string>('');
+  const autoSyncRef = React.useRef<GitHubAutoSync | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -59,6 +64,14 @@ const GitHubIntegration: React.FC<GitHubIntegrationProps> = ({
         loadRepositories(storedToken);
       }
     }
+    
+    // Cleanup auto-sync on unmount
+    return () => {
+      if (autoSyncRef.current) {
+        autoSyncRef.current.stop();
+        autoSyncRef.current = null;
+      }
+    };
   }, [isOpen]);
 
   const loadRepositories = async (githubToken: string) => {
@@ -66,7 +79,7 @@ const GitHubIntegration: React.FC<GitHubIntegrationProps> = ({
     try {
       const reposList = await listRepositories(githubToken);
       setRepos(reposList);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error loading repositories:', error);
     } finally {
       setIsLoading(false);
@@ -77,9 +90,10 @@ const GitHubIntegration: React.FC<GitHubIntegrationProps> = ({
     try {
       const { authUrl } = await authenticateGitHub();
       window.location.href = authUrl;
-    } catch (error: any) {
+    } catch (error) {
       console.error('GitHub auth error:', error);
-      alert('Failed to connect to GitHub: ' + error.message);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      alert('Failed to connect to GitHub: ' + errorMessage);
     }
   };
 
@@ -106,8 +120,9 @@ const GitHubIntegration: React.FC<GitHubIntegrationProps> = ({
       setShowCreateRepo(false);
       setNewRepoName('');
       setNewRepoDescription('');
-    } catch (error: any) {
-      alert('Failed to create repository: ' + error.message);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      alert('Failed to create repository: ' + errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -135,10 +150,11 @@ const GitHubIntegration: React.FC<GitHubIntegrationProps> = ({
         success: true,
         url: result.url,
       });
-    } catch (error: any) {
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to push to GitHub';
       setPushResult({
         success: false,
-        error: error.message || 'Failed to push to GitHub',
+        error: errorMessage,
       });
     } finally {
       setIsPushing(false);
@@ -323,6 +339,68 @@ const GitHubIntegration: React.FC<GitHubIntegrationProps> = ({
                     onChange={(e) => setBranch(e.target.value)}
                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50"
                   />
+                  
+                  {/* Auto-Sync Toggle */}
+                  <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/10">
+                    <div>
+                      <p className="text-sm font-medium text-white">Auto-Sync</p>
+                      <p className="text-xs text-gray-400">Automatically push changes every 30 seconds</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (autoSyncEnabled) {
+                          // Stop auto-sync
+                          if (autoSyncRef.current) {
+                            autoSyncRef.current.stop();
+                            autoSyncRef.current = null;
+                          }
+                          setAutoSyncEnabled(false);
+                          setAutoSyncStatus('idle');
+                        } else {
+                          // Start auto-sync
+                          if (token && selectedRepo) {
+                            const autoSync = new GitHubAutoSync(
+                              token,
+                              selectedRepo,
+                              branch,
+                              (status, message) => {
+                                setAutoSyncStatus(status);
+                                setAutoSyncMessage(message || '');
+                              }
+                            );
+                            autoSync.start(30);
+                            autoSyncRef.current = autoSync;
+                            setAutoSyncEnabled(true);
+                          }
+                        }
+                      }}
+                      className={clsx(
+                        "relative w-12 h-6 rounded-full transition-colors",
+                        autoSyncEnabled ? "bg-green-500" : "bg-gray-600"
+                      )}
+                    >
+                      <div className={clsx(
+                        "absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform",
+                        autoSyncEnabled ? "translate-x-6" : "translate-x-0"
+                      )} />
+                    </button>
+                  </div>
+                  
+                  {/* Auto-Sync Status */}
+                  {autoSyncEnabled && (
+                    <div className={clsx(
+                      "p-3 rounded-lg border text-xs",
+                      autoSyncStatus === 'syncing' ? "bg-blue-500/10 border-blue-500/30 text-blue-400" :
+                      autoSyncStatus === 'success' ? "bg-green-500/10 border-green-500/30 text-green-400" :
+                      autoSyncStatus === 'error' ? "bg-red-500/10 border-red-500/30 text-red-400" :
+                      "bg-white/5 border-white/10 text-gray-400"
+                    )}>
+                      {autoSyncStatus === 'syncing' && <span>⏳ Syncing...</span>}
+                      {autoSyncStatus === 'success' && <span>✅ {autoSyncMessage || 'Synced successfully'}</span>}
+                      {autoSyncStatus === 'error' && <span>❌ {autoSyncMessage || 'Sync failed'}</span>}
+                      {autoSyncStatus === 'idle' && <span>🔄 Waiting for changes...</span>}
+                    </div>
+                  )}
                 </div>
               )}
 

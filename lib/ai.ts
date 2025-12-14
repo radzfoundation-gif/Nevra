@@ -1,4 +1,5 @@
-export type AIProvider = 'groq' | 'deepseek' | 'openai' | 'grok';
+export type AIProvider = 'anthropic' | 'deepseek' | 'openai' | 'gemini';
+export type Framework = 'html' | 'react' | 'nextjs' | 'vite';
 
 // --- ENHANCED SYSTEM PROMPTS (Bolt.new / v0.app Level) ---
 const BUILDER_PROMPT = `
@@ -275,8 +276,9 @@ For simple single-page applications, return ONLY the complete HTML string:
 - Ensure all components are properly defined
 
 **Decision Rule:**
-- Use multi-file format if: project has 3+ components, needs separate styles, or user explicitly requests multi-file
-- Use single-file format if: simple landing page, single component, or quick prototype
+- **ALWAYS use multi-file format for React/Next.js/Vite projects** - these frameworks require proper file structure
+- Use multi-file format if: user requests React/Next.js/Vite, project has 3+ components, needs separate styles, or user explicitly requests multi-file
+- Use single-file format ONLY for: simple HTML landing pages without framework requirements (when framework is "html")
 
 🔧 CRITICAL ICON USAGE RULES (MUST FOLLOW - NO EXCEPTIONS):
 - **ALWAYS** use SafeIcon with STRING literal name: <SafeIcon name="Zap" />
@@ -350,28 +352,220 @@ RULE:
 - Do NOT generate full applications in tutor mode; keep to snippets and explanations.
 `;
 
+// --- NEXT.JS BUILDER PROMPT (v0.app Level - Compact Version) ---
+const NEXTJS_BUILDER_PROMPT = `
+You are NEVRA BUILDER, an elite Next.js Engineer. Generate production-ready Next.js 14+ apps with App Router.
+
+REQUIREMENTS:
+- Next.js 14+ App Router (NOT Pages Router)
+- File structure: app/ for routes, components/ for components, lib/ for utilities
+- Server Components by default, add "use client" only when needed
+- TypeScript (.tsx) with proper types
+- Tailwind CSS for styling
+- Use next/image, next/font, Metadata API
+
+OUTPUT FORMAT:
+Return multi-file JSON:
+\`\`\`json
+{
+  "type": "multi-file",
+  "framework": "next",
+  "files": [
+    {"path": "package.json", "content": "{...}", "type": "config"},
+    {"path": "tsconfig.json", "content": "{...}", "type": "config"},
+    {"path": "next.config.js", "content": "...", "type": "config"},
+    {"path": "tailwind.config.js", "content": "...", "type": "config"},
+    {"path": "app/layout.tsx", "content": "...", "type": "page"},
+    {"path": "app/globals.css", "content": "@tailwind...", "type": "style"},
+    {"path": "app/page.tsx", "content": "...", "type": "page"}
+  ],
+  "entry": "app/page.tsx"
+}
+\`\`\`
+
+ESSENTIAL FILES:
+- package.json: Next.js 14+, React 18+, TypeScript, Tailwind
+- tsconfig.json: Next.js config with @/* paths
+- next.config.js: reactStrictMode: true
+- tailwind.config.js: content paths for app/, components/
+- app/layout.tsx: RootLayout with Metadata
+- app/globals.css: @tailwind directives
+- app/page.tsx: Main page component
+
+RULES:
+- Server Components by default
+- "use client" only for interactivity/hooks
+- TypeScript types required
+- App Router structure only
+`;
+
+// React/Vite Builder Prompt
+const REACT_VITE_BUILDER_PROMPT = `
+You are NEVRA BUILDER, an elite React/Vite Engineer. Generate production-ready React apps with Vite.
+
+REQUIREMENTS:
+- React 18+ with TypeScript (.tsx)
+- Vite for build tooling
+- File structure: src/components/, src/App.tsx, src/main.tsx, src/index.css
+- Tailwind CSS for styling
+- Proper component structure with TypeScript types
+
+OUTPUT FORMAT - MUST return multi-file JSON:
+\`\`\`json
+{
+  "type": "multi-file",
+  "framework": "vite",
+  "files": [
+    {"path": "package.json", "content": "{...}", "type": "config"},
+    {"path": "vite.config.ts", "content": "...", "type": "config"},
+    {"path": "tsconfig.json", "content": "{...}", "type": "config"},
+    {"path": "tailwind.config.js", "content": "...", "type": "config"},
+    {"path": "index.html", "content": "...", "type": "config"},
+    {"path": "src/main.tsx", "content": "...", "type": "config"},
+    {"path": "src/App.tsx", "content": "...", "type": "page"},
+    {"path": "src/index.css", "content": "@tailwind...", "type": "style"},
+    {"path": "src/components/Hero.tsx", "content": "...", "type": "component"}
+  ],
+  "entry": "src/App.tsx"
+}
+\`\`\`
+
+ESSENTIAL FILES:
+- package.json: React 18+, Vite, TypeScript, Tailwind CSS dependencies
+- vite.config.ts: Vite configuration with React plugin
+- tsconfig.json: TypeScript config for React/Vite
+- tailwind.config.js: Tailwind with content paths for src/
+- index.html: Vite entry HTML
+- src/main.tsx: React entry point with ReactDOM.createRoot
+- src/App.tsx: Main App component
+- src/index.css: Tailwind directives and global styles
+
+RULES:
+- Use functional components with hooks
+- TypeScript types required
+- Proper imports and exports
+- Component-based architecture
+- Export components properly
+`;
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 
 const formatErrorHtml = (provider: AIProvider, message: string) => {
-  if (provider === 'openai' && message.toLowerCase().includes('credit')) {
+  const isCreditError = message.toLowerCase().includes('credit') || message.toLowerCase().includes('afford') || message.toLowerCase().includes('insufficient');
+  const isTokenLimitError = message.toLowerCase().includes('prompt tokens') || message.toLowerCase().includes('token limit exceeded');
+  
+  // All OpenRouter providers (anthropic, gemini, openai) can have credit errors
+  const isOpenRouterProvider = provider === 'openai' || provider === 'anthropic' || provider === 'gemini';
+  
+  if (isOpenRouterProvider && (isCreditError || isTokenLimitError)) {
+    const providerName = provider === 'openai' ? 'GPT-5-Nano' : provider === 'anthropic' ? 'GPT OSS 20B' : provider === 'deepseek' ? 'Mistral Devstral' : 'GPT OSS 20B';
     return `<!-- Error Generating Code --> 
       <div class="text-red-500 bg-red-900/20 p-4 rounded-lg border border-red-500/50">
-        <strong>⚠️ OpenRouter Credits Insufficient</strong>
+        <strong>⚠️ OpenRouter ${isTokenLimitError ? 'Prompt Token Limit' : 'Credits'} Exceeded</strong>
         <br/><br/>
         <p class="text-sm mb-2">${message}</p>
-        <p class="text-sm mb-3"><strong>Solutions:</strong></p>
+        <p class="text-sm mb-3"><strong>Quick Solutions:</strong></p>
         <ul class="text-sm list-disc list-inside space-y-1 mb-3">
+          <li><strong>Switch to DeepSeek</strong> - Free alternative that doesn't require OpenRouter credits</li>
+          <li>Use a shorter, more concise prompt to reduce token usage</li>
           <li>Add credits at <a href="https://openrouter.ai/settings/credits" target="_blank" class="text-blue-400 underline">openrouter.ai/settings/credits</a></li>
-          <li>Switch to another provider (Groq or DeepSeek) in the provider selector</li>
-          <li>Try a shorter prompt to reduce token usage</li>
+          ${provider === 'openai' ? '<li>Puter.js uses User-Pays model - no API key needed</li>' : '<li>Note: ' + providerName + ' is free and does not require credits</li>'}
         </ul>
-        <span class="text-xs opacity-70">Note: GPT-4o requires paid credits on OpenRouter. Free alternatives: Groq (Llama 3) or DeepSeek V3.</span>
+        <div class="text-xs opacity-70 bg-blue-900/20 p-2 rounded mt-2">
+          💡 <strong>Tip:</strong> Most models use OpenRouter. Mistral Devstral, GPT OSS 20B, and GPT-5-Nano (via Puter.js) are available. Try <strong>Mistral Devstral</strong>, <strong>GPT OSS 20B</strong>, or <strong>GPT-5-Nano</strong> for alternatives.
+        </div>
       </div>`;
+  }
+
+  // Special handling for GPT OSS 20B (anthropic) errors
+  if (provider === 'anthropic' || provider === 'gemini') {
+    const isHtmlError = message.toLowerCase().includes('html') || message.toLowerCase().includes('doctype');
+    const isModelError = message.toLowerCase().includes('model') && message.toLowerCase().includes('not found');
+    const isKeyError = message.toLowerCase().includes('invalid') && message.toLowerCase().includes('key');
+    
+    if (isHtmlError || isModelError || isKeyError) {
+      return `<!-- Error Generating Code --> 
+        <div class="text-red-500 bg-red-900/20 p-4 rounded-lg border border-red-500/50">
+          <strong>🚫 GPT OSS 20B Error</strong>
+          <br/><br/>
+          <p class="text-sm mb-2">${message}</p>
+          <p class="text-sm mb-3"><strong>Possible Causes & Solutions:</strong></p>
+          <ul class="text-sm list-disc list-inside space-y-1 mb-3">
+            ${isModelError ? '<li><strong>Model not available:</strong> The GPT OSS 20B model may not be accessible with your OpenRouter API key. Try using Mistral Devstral instead.</li>' : ''}
+            ${isKeyError ? '<li><strong>Invalid API Key:</strong> Check your OPENROUTER_API_KEY in backend environment variables.</li>' : ''}
+            ${isHtmlError ? '<li><strong>API Endpoint Error:</strong> The API returned HTML instead of JSON. This usually means the endpoint is incorrect or the service is down.</li>' : ''}
+            <li>Verify your <code class="bg-black/30 px-1 rounded">OPENROUTER_API_KEY</code> is set correctly in backend</li>
+            <li>Check if the model <code class="bg-black/30 px-1 rounded">openai/gpt-oss-20b:free</code> is available in your OpenRouter account</li>
+            <li>Try switching to <strong>Mistral Devstral</strong> provider as an alternative</li>
+            <li>Check backend logs for detailed error information</li>
+          </ul>
+          <span class="text-xs opacity-70">Note: GPT OSS 20B uses OpenRouter API. Make sure your API key has access to the model.</span>
+        </div>`;
+    }
+  }
+
+  // Special handling for DeepSeek errors (uses OpenRouter)
+  if (provider === 'deepseek') {
+    // Check if error is about image support (should not happen anymore, but handle it)
+    const isImageSupportError = message.toLowerCase().includes('does not support image input') || message.toLowerCase().includes('image input');
+    
+    if (isImageSupportError) {
+      return `<!-- Error Generating Code --> 
+        <div class="text-yellow-500 bg-yellow-900/20 p-4 rounded-lg border border-yellow-500/50">
+          <strong>⚠️ Mistral Devstral Image Support</strong>
+          <br/><br/>
+          <p class="text-sm mb-2">Mistral Devstral via OpenRouter now supports image input. If you're seeing this error, please refresh the page or restart the backend server.</p>
+          <p class="text-sm mb-3"><strong>Note:</strong> Mistral Devstral uses OpenRouter API which supports vision models.</p>
+        </div>`;
+    }
+    
+    const isUnauthorized = message.toLowerCase().includes('401') || message.toLowerCase().includes('unauthorized');
+    const isKeyError = message.toLowerCase().includes('invalid') && message.toLowerCase().includes('key');
+    const isApiKeyError = message.toLowerCase().includes('api key');
+    
+    if (isUnauthorized || isKeyError || isApiKeyError) {
+      return `<!-- Error Generating Code --> 
+        <div class="text-red-500 bg-red-900/20 p-4 rounded-lg border border-red-500/50">
+          <strong>🚫 Mistral Devstral Error</strong>
+          <br/><br/>
+          <p class="text-sm mb-2">${message}</p>
+          <p class="text-sm mb-3"><strong>Possible Causes & Solutions:</strong></p>
+          <ul class="text-sm list-disc list-inside space-y-1 mb-3">
+            <li><strong>Invalid OpenRouter API Key:</strong> Mistral Devstral uses OpenRouter API. Check your <code class="bg-black/30 px-1 rounded">OPENROUTER_API_KEY</code> in backend environment variables.</li>
+            <li><strong>API Key Not Set:</strong> Make sure <code class="bg-black/30 px-1 rounded">OPENROUTER_API_KEY</code> is set in your backend <code class="bg-black/30 px-1 rounded">.env</code> file</li>
+            <li><strong>Model Access:</strong> Verify that your OpenRouter API key has access to the model <code class="bg-black/30 px-1 rounded">tngtech/devstral-2512:free</code></li>
+            <li>Get your API key from <a href="https://openrouter.ai/keys" target="_blank" class="text-blue-400 underline">openrouter.ai/keys</a></li>
+            <li>Restart your backend server after updating the API key</li>
+          </ul>
+          <span class="text-xs opacity-70">Note: Mistral Devstral uses OpenRouter API (not DEEPSEEK_API_KEY). Make sure your OPENROUTER_API_KEY is valid and has access to the model.</span>
+        </div>`;
+    }
+  }
+
+  // Special handling for API key not configured errors
+  if (message.toLowerCase().includes('api key not configured') || message.toLowerCase().includes('not configured')) {
+    const isOpenRouterProvider = provider === 'openai' || provider === 'anthropic' || provider === 'gemini' || provider === 'deepseek';
+    if (isOpenRouterProvider) {
+      const providerName = provider === 'openai' ? 'GPT-5-Nano' : provider === 'anthropic' ? 'GPT OSS 20B' : provider === 'deepseek' ? 'Mistral Devstral' : provider === 'gemini' ? 'GPT OSS 20B' : 'Unknown Provider';
+      return `<!-- Error Generating Code --> 
+        <div class="text-red-500 bg-red-900/20 p-4 rounded-lg border border-red-500/50">
+          <strong>⚠️ OpenRouter API Key Not Configured</strong>
+          <br/><br/>
+          <p class="text-sm mb-2">${providerName} uses OpenRouter API and requires OPENROUTER_API_KEY to be set in your backend environment variables.</p>
+          <p class="text-sm mb-3"><strong>Solutions:</strong></p>
+          <ul class="text-sm list-disc list-inside space-y-1 mb-3">
+            <li>Add <code class="bg-black/30 px-1 rounded">OPENROUTER_API_KEY</code> to your backend <code class="bg-black/30 px-1 rounded">.env</code> file</li>
+            <li>Get your API key from <a href="https://openrouter.ai/keys" target="_blank" class="text-blue-400 underline">openrouter.ai/keys</a></li>
+            <li>Restart your backend server after adding the key</li>
+          </ul>
+          <span class="text-xs opacity-70">Note: ${providerName} requires OpenRouter API key. Make sure it's set in backend environment variables.</span>
+        </div>`;
+    }
   }
 
   return `<!-- Error Generating Code --> 
     <div class="text-red-500 bg-red-900/20 p-4 rounded-lg border border-red-500/50">
-      <strong>${provider.toUpperCase()} Error:</strong> ${message}
+      <strong>${provider === 'deepseek' ? 'MISTRAL DEVSTRAL' : provider.toUpperCase()} Error:</strong> ${message}
       <br/>
       <span class="text-sm opacity-70">Check console for details or verify API keys.</span>
     </div>`;
@@ -399,12 +593,42 @@ export const generateCode = async (
   prompt: string,
   history: any[],
   mode: 'builder' | 'tutor' = 'builder',
-  provider: AIProvider = 'groq',
-  images: string[] = []
+  provider: AIProvider = 'deepseek', // Default to Mistral Devstral (free)
+  images: string[] = [],
+  framework: Framework = 'html'
 ): Promise<CodeResponse> => {
 
-  // Enhance system prompt if images are provided (vision analysis)
+  // Enhance system prompt based on framework
   let systemPrompt = mode === 'builder' ? BUILDER_PROMPT : TUTOR_PROMPT;
+  
+  if (mode === 'builder') {
+    switch (framework) {
+      case 'nextjs':
+        systemPrompt = NEXTJS_BUILDER_PROMPT;
+        break;
+      case 'react':
+      case 'vite':
+        systemPrompt = REACT_VITE_BUILDER_PROMPT;
+        break;
+      case 'html':
+      default:
+        systemPrompt = BUILDER_PROMPT;
+        break;
+    }
+    
+    // Force multi-file for framework-based projects
+    if (framework !== 'html') {
+      const frameworkInstruction = `
+      
+⚠️ CRITICAL FRAMEWORK REQUIREMENT:
+You MUST generate code in **multi-file JSON format** for ${framework === 'nextjs' ? 'Next.js' : framework === 'vite' ? 'Vite/React' : 'React'} framework.
+- DO NOT return single-file HTML
+- Return ONLY the JSON object with type "multi-file" and framework "${framework}"
+- Include all necessary config files (package.json, tsconfig.json, vite.config.ts or next.config.js, etc.)
+- Follow the framework structure exactly as specified in the requirements above`;
+      systemPrompt = systemPrompt + frameworkInstruction;
+    }
+  }
   
   if (images && images.length > 0) {
     const visionInstructions = `
@@ -437,8 +661,8 @@ Always be thorough and helpful in your analysis.`;
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        prompt,
+        body: JSON.stringify({
+        prompt: framework !== 'html' ? `${prompt}\n\nIMPORTANT: Generate as ${framework === 'nextjs' ? 'Next.js' : framework === 'vite' ? 'Vite/React' : 'React'} project with multi-file structure. Return JSON format with type "multi-file".` : prompt,
         history,
         mode,
         provider,
@@ -448,55 +672,105 @@ Always be thorough and helpful in your analysis.`;
     });
 
     if (!resp.ok) {
-      const errorData = await resp.json().catch(() => ({}));
+      // Try to parse as JSON first, fallback to text if HTML response
+      let errorData: any = {};
+      const contentType = resp.headers.get('content-type') || '';
+      
+      if (contentType.includes('application/json')) {
+        try {
+          errorData = await resp.json();
+        } catch (e) {
+          // If JSON parse fails, try as text
+          const text = await resp.text();
+          console.error(`[${provider}] Non-JSON error response:`, text.slice(0, 500));
+          errorData = { error: `API returned HTML instead of JSON. Status: ${resp.status}` };
+        }
+      } else {
+        // Response is HTML or other non-JSON format
+        const text = await resp.text();
+        console.error(`[${provider}] HTML error response:`, text.slice(0, 500));
+        errorData = { 
+          error: `API Error (${resp.status}): Server returned HTML instead of JSON. This usually means the API endpoint is incorrect, API key is invalid, or the service is unavailable.` 
+        };
+      }
+      
       const msg = errorData?.error || resp.statusText || 'Unknown error';
       throw new Error(msg);
+    }
+
+    // Check content type before parsing
+    const contentType = resp.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      const text = await resp.text();
+      console.error(`[${provider}] Non-JSON response:`, text.slice(0, 500));
+      throw new Error(`API returned ${contentType} instead of JSON. Response: ${text.slice(0, 200)}`);
     }
 
     const data = await resp.json();
     const content = data.content || "";
 
-    // Try to parse as multi-file JSON response
+    // Try to parse as multi-file JSON response with better error handling
     try {
-      // Check if content is JSON (starts with { or [)
-      const trimmedContent = content.trim();
-      if (trimmedContent.startsWith('{') || trimmedContent.startsWith('[')) {
-        // Try to parse JSON
-        const parsed = JSON.parse(trimmedContent);
-        
-        // Check if it's a multi-file response
-        if (parsed.type === 'multi-file' && Array.isArray(parsed.files)) {
-          return {
-            type: 'multi-file',
-            files: parsed.files.map((f: any) => ({
-              path: f.path || '',
-              content: f.content || '',
-              type: f.type || 'other',
-            })),
-            entry: parsed.entry || (parsed.files[0]?.path || ''),
-            framework: parsed.framework,
-          } as MultiFileResponse;
+      // First, try to extract JSON from markdown code blocks
+      const jsonBlockMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (jsonBlockMatch) {
+        const jsonContent = jsonBlockMatch[1].trim();
+        if (jsonContent.startsWith('{')) {
+          try {
+            const parsed = JSON.parse(jsonContent);
+            if (parsed.type === 'multi-file' && Array.isArray(parsed.files)) {
+              // Validate and clean files
+              const validFiles = parsed.files
+                .filter((f: any) => f && f.path && f.content !== undefined)
+                .map((f: any) => ({
+                  path: String(f.path || '').trim(),
+                  content: String(f.content || '').trim(),
+                  type: (f.type || 'other') as 'component' | 'page' | 'style' | 'config' | 'other',
+                }));
+              
+              if (validFiles.length > 0) {
+                return {
+                  type: 'multi-file',
+                  files: validFiles,
+                  entry: parsed.entry || validFiles.find((f: any) => f.path.includes('App.tsx') || f.path.includes('main.tsx') || f.path.includes('index.tsx'))?.path || validFiles[0].path,
+                  framework: parsed.framework || 'react',
+                } as MultiFileResponse;
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to parse JSON from code block:', e);
+          }
         }
       }
       
-      // Check if content contains JSON code block
-      const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/```\s*([\s\S]*?)\s*```/);
-      if (jsonMatch) {
-        const jsonContent = jsonMatch[1].trim();
-        if (jsonContent.startsWith('{')) {
-          const parsed = JSON.parse(jsonContent);
+      // Check if content is direct JSON (starts with {)
+      const trimmedContent = content.trim();
+      if (trimmedContent.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(trimmedContent);
+          
+          // Check if it's a multi-file response
           if (parsed.type === 'multi-file' && Array.isArray(parsed.files)) {
-            return {
-              type: 'multi-file',
-              files: parsed.files.map((f: any) => ({
-                path: f.path || '',
-                content: f.content || '',
-                type: f.type || 'other',
-              })),
-              entry: parsed.entry || (parsed.files[0]?.path || ''),
-              framework: parsed.framework,
-            } as MultiFileResponse;
+            // Validate and clean files
+            const validFiles = parsed.files
+              .filter((f: any) => f && f.path && f.content !== undefined)
+              .map((f: any) => ({
+                path: String(f.path || '').trim(),
+                content: String(f.content || '').trim(),
+                type: (f.type || 'other') as 'component' | 'page' | 'style' | 'config' | 'other',
+              }));
+            
+            if (validFiles.length > 0) {
+              return {
+                type: 'multi-file',
+                files: validFiles,
+                entry: parsed.entry || validFiles.find((f: any) => f.path.includes('App.tsx') || f.path.includes('main.tsx') || f.path.includes('index.tsx'))?.path || validFiles[0].path,
+                framework: parsed.framework || 'react',
+              } as MultiFileResponse;
+            }
           }
+        } catch (parseError) {
+          console.warn('Failed to parse direct JSON:', parseError);
         }
       }
     } catch (parseError) {
@@ -505,6 +779,15 @@ Always be thorough and helpful in your analysis.`;
     }
 
     // Fallback to single-file HTML
+    // Ensure content is not empty
+    if (!content || content.trim().length === 0) {
+      console.warn(`[${provider}] Empty content received, returning error message`);
+      return {
+        type: 'single-file',
+        content: formatErrorHtml(provider, 'Received empty response from API. Please try again or check your API configuration.'),
+      } as SingleFileResponse;
+    }
+    
     return {
       type: 'single-file',
       content: content,
@@ -516,9 +799,48 @@ Always be thorough and helpful in your analysis.`;
       : typeof error === 'string' 
         ? error 
         : 'Unknown error occurred';
+    
+    // Check if it's a prompt token limit error for OpenRouter providers
+    const isPromptTokenError = (provider === 'openai' || provider === 'gemini' || provider === 'anthropic') && 
+      (errorMessage.toLowerCase().includes('prompt tokens') || 
+       errorMessage.toLowerCase().includes('prompt token limit') ||
+       errorMessage.toLowerCase().includes('token limit exceeded'));
+    
+    if (isPromptTokenError) {
+      // Return error with suggestion to use shorter prompt or switch provider
+      const providerName = provider === 'openai' ? 'GPT-5-Nano' : provider === 'anthropic' ? 'GPT OSS 20B' : provider === 'deepseek' ? 'Mistral Devstral' : 'GPT OSS 20B';
+      return {
+        type: 'single-file',
+        content: formatErrorHtml(provider, errorMessage + ` - Try using a shorter prompt or switch to a different provider.`),
+      } as SingleFileResponse;
+    }
+    
+    // Check if it's a timeout/abort error
+    const isTimeoutError = errorMessage.toLowerCase().includes('timeout') ||
+                          errorMessage.toLowerCase().includes('aborted') ||
+                          errorMessage.toLowerCase().includes('took too long');
+    
+    if (isTimeoutError && provider === 'deepseek') {
+      return {
+        type: 'single-file',
+        content: formatErrorHtml(provider, `${errorMessage} - Mistral Devstral can be slower for complex prompts. Please try again with a shorter prompt or switch to a different provider like GPT OSS 20B.`),
+      } as SingleFileResponse;
+    }
+    
+    // Always return a valid response, even on error
+    const errorContent = formatErrorHtml(provider, errorMessage);
+    
+    // Ensure error content is not empty
+    if (!errorContent || errorContent.trim().length === 0) {
+      return {
+        type: 'single-file',
+        content: formatErrorHtml(provider, 'Unknown error occurred. Please try again or check your API configuration.'),
+      } as SingleFileResponse;
+    }
+    
     return {
       type: 'single-file',
-      content: formatErrorHtml(provider, errorMessage),
+      content: errorContent,
     } as SingleFileResponse;
   }
 };

@@ -61,7 +61,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({
       setIsListening(true);
     };
 
-    recognition.onresult = (event: any) => {
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
       let interimTranscript = '';
       let finalTranscript = '';
 
@@ -82,7 +82,7 @@ const VoiceCall: React.FC<VoiceCallProps> = ({
       }
     };
 
-    recognition.onerror = (event: any) => {
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       console.error('Speech recognition error:', event.error);
       if (event.error === 'no-speech') {
         // Restart recognition if no speech detected
@@ -273,21 +273,22 @@ const VoiceCall: React.FC<VoiceCallProps> = ({
       conversationHistoryRef.current = initialHistory;
       setConversationHistory(initialHistory);
       speakText(greeting);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error starting call:', error);
       setIsRequestingPermission(false);
       
       let errorMessage = 'Failed to access microphone. ';
+      const errorName = error instanceof DOMException ? error.name : (error instanceof Error && 'name' in error ? (error as { name?: string }).name : '');
       
-      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+      if (errorName === 'NotAllowedError' || errorName === 'PermissionDeniedError') {
         errorMessage += 'Please allow microphone access in your browser settings.';
-      } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+      } else if (errorName === 'NotFoundError' || errorName === 'DevicesNotFoundError') {
         errorMessage += 'No microphone found. Please connect a microphone and try again.';
-      } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+      } else if (errorName === 'NotReadableError' || errorName === 'TrackStartError') {
         errorMessage += 'Microphone is being used by another application. Please close other apps and try again.';
-      } else if (error.name === 'OverconstrainedError' || error.name === 'ConstraintNotSatisfiedError') {
+      } else if (errorName === 'OverconstrainedError' || errorName === 'ConstraintNotSatisfiedError') {
         errorMessage += 'Microphone constraints could not be satisfied.';
-      } else if (error.message) {
+      } else if (error instanceof Error && error.message) {
         errorMessage += error.message;
       } else {
         errorMessage += 'Please check your browser permissions and try again.';

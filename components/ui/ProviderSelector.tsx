@@ -1,12 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, Brain, Check, Lock, AlertCircle } from 'lucide-react';
+import { ChevronDown, Brain, Check, Lock, AlertCircle, Sparkles, Zap } from 'lucide-react';
 import { AIProvider } from '@/lib/ai';
 import clsx from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { Llama3Icon } from './Llama3Logo';
-import { KimiK2Icon } from './KimiK2Logo';
-import { useGrokTokenLimit } from '@/hooks/useGrokTokenLimit';
 
 const cn = (...inputs: Parameters<typeof clsx>) => twMerge(clsx(inputs));
 
@@ -17,44 +14,46 @@ interface ProviderSelectorProps {
   isSubscribed?: boolean; // For premium features
 }
 
-// Custom icon component wrapper
-const Llama3IconComponent: React.FC<{ size?: number; className?: string }> = ({ size = 12, className }) => (
-  <Llama3Icon size={size} className={className} />
+// Custom icon component wrappers
+const ClaudeIconComponent: React.FC<{ size?: number; className?: string }> = ({ size = 12, className }) => (
+  <Sparkles size={size} className={className} />
 );
 
-const KimiK2IconComponent: React.FC<{ size?: number; className?: string }> = ({ size = 12, className }) => (
-  <KimiK2Icon size={size} className={className} />
+const GeminiIconComponent: React.FC<{ size?: number; className?: string }> = ({ size = 12, className }) => (
+  <Zap size={size} className={className} />
+);
+
+const DeepSeekIconComponent: React.FC<{ size?: number; className?: string }> = ({ size = 12, className }) => (
+  <Zap size={size} className={className} />
 );
 
 const providers: { id: AIProvider; name: string; icon: React.ComponentType<{ size?: number; className?: string }>; color: string; disabled?: boolean; premium?: boolean }[] = [
-  { id: 'groq', name: 'Llama 3', icon: Llama3IconComponent, color: 'text-blue-400' },
-  { id: 'grok', name: 'Kimi K2', icon: KimiK2IconComponent, color: 'text-purple-400' },
-  { id: 'openai', name: 'GPT-4o', icon: Brain, color: 'text-green-400', premium: true },
+  { id: 'anthropic', name: 'GPT OSS 20B', icon: ClaudeIconComponent, color: 'text-orange-400' }, // Free model via OpenRouter
+  { id: 'openai', name: 'GPT-5-Nano', icon: Brain, color: 'text-green-400', premium: false }, // GPT-5-Nano via Puter.js
+  { id: 'deepseek', name: 'Mistral Devstral', icon: DeepSeekIconComponent, color: 'text-blue-400' },
 ];
 
 const ProviderSelector: React.FC<ProviderSelectorProps> = ({ value, onChange, className, isSubscribed = false }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const { isGrokLocked, grokTokensUsed, grokTokensRemaining, grokTokenLimit } = useGrokTokenLimit();
 
   const selectedProvider = providers.find(p => p.id === value) || providers[0];
   
-  // Determine if provider should be disabled
+  // Determine if provider should be disabled - DISABLED FOR TESTING
   const isProviderDisabled = (provider: typeof providers[0]) => {
-    if (provider.disabled) return true;
-    if (provider.premium && !isSubscribed) return true;
-    // Disable Grok if token limit exceeded
-    if (provider.id === 'grok' && isGrokLocked && !isSubscribed) return true;
+    // DISABLED FOR TESTING - Allow all providers
     return false;
+    // if (provider.disabled) return true;
+    // // Temporarily allow GPT-4o for all users (testing)
+    // if (provider.id === 'openai') return false;
+    // if (provider.premium && !isSubscribed) return true;
+    // return false;
   };
 
   // Get disabled reason for tooltip
   const getDisabledReason = (provider: typeof providers[0]) => {
     if (provider.premium && !isSubscribed) {
-      return 'Subscribe to unlock GPT-4o';
-    }
-    if (provider.id === 'grok' && isGrokLocked && !isSubscribed) {
-      return `Kimi K2 token limit reached (${grokTokensUsed}/${grokTokenLimit}). Recharge tokens to unlock.`;
+      return 'Subscribe to unlock GPT-5.2';
     }
     return undefined;
   };
@@ -70,18 +69,25 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({ value, onChange, cl
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const isCompact = className?.includes('text-[10px]') || className?.includes('text-xs');
+  
   return (
     <div className={cn("relative", className)} ref={containerRef}>
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/10 text-xs text-gray-300 rounded-full px-3 py-1.5 transition-all min-w-[100px] justify-between"
+        className={cn(
+          "flex items-center bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/10 text-gray-300 rounded-full transition-all justify-between",
+          isCompact 
+            ? "gap-1 px-2 py-0.5 min-w-[70px]" 
+            : "gap-2 px-3 py-1.5 min-w-[100px]"
+        )}
       >
-        <div className="flex items-center gap-2">
-          <selectedProvider.icon size={12} className={selectedProvider.color} />
-          <span className="text-xs">{selectedProvider.name}</span>
+        <div className={cn("flex items-center", isCompact ? "gap-1" : "gap-2")}>
+          <selectedProvider.icon size={isCompact ? 10 : 12} className={selectedProvider.color} />
+          <span className={cn(isCompact ? "text-[10px]" : "text-xs")}>{selectedProvider.name}</span>
         </div>
-        <ChevronDown size={12} className={cn("text-gray-500 transition-transform", isOpen && "rotate-180")} />
+        <ChevronDown size={isCompact ? 10 : 12} className={cn("text-gray-500 transition-transform", isOpen && "rotate-180")} />
       </button>
 
       <AnimatePresence>
@@ -97,7 +103,6 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({ value, onChange, cl
               {providers.map((provider) => {
                 const disabled = isProviderDisabled(provider);
                 const disabledReason = getDisabledReason(provider);
-                const isGrokProvider = provider.id === 'grok';
                 
                 return (
                   <button
@@ -120,22 +125,9 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({ value, onChange, cl
                     <div className="flex-1 min-w-0">
                       <div className="font-medium flex items-center gap-2">
                         {provider.name}
-                        {isGrokProvider && isGrokLocked && !isSubscribed && (
-                          <AlertCircle size={10} className="text-amber-400 shrink-0" />
-                        )}
                       </div>
                       {provider.premium && !isSubscribed && (
                         <div className="text-[10px] text-amber-400/70 mt-0.5">Premium</div>
-                      )}
-                      {isGrokProvider && isGrokLocked && !isSubscribed && (
-                        <div className="text-[10px] text-amber-400/70 mt-0.5">
-                          Locked ({grokTokensUsed}/{grokTokenLimit})
-                        </div>
-                      )}
-                      {isGrokProvider && !isGrokLocked && !isSubscribed && grokTokensRemaining < grokTokenLimit && (
-                        <div className="text-[10px] text-gray-500 mt-0.5">
-                          {grokTokensRemaining} tokens remaining
-                        </div>
                       )}
                     </div>
                     {disabled ? (

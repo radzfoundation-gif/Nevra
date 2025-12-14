@@ -164,6 +164,104 @@ export async function pushToRepository(
 }
 
 /**
+ * Auto-sync files to GitHub (watch for changes and auto-push)
+ */
+export class GitHubAutoSync {
+  private syncInterval: number | null = null;
+  private lastSyncTime: Date | null = null;
+  private isSyncing: boolean = false;
+  private token: string;
+  private repo: GitHubRepo;
+  private branch: string;
+  private onSyncStatus?: (status: 'syncing' | 'success' | 'error', message?: string) => void;
+
+  constructor(
+    token: string,
+    repo: GitHubRepo,
+    branch: string = 'main',
+    onSyncStatus?: (status: 'syncing' | 'success' | 'error', message?: string) => void
+  ) {
+    this.token = token;
+    this.repo = repo;
+    this.branch = branch;
+    this.onSyncStatus = onSyncStatus;
+  }
+
+  /**
+   * Start auto-sync (check for changes every N seconds)
+   */
+  start(intervalSeconds: number = 30): void {
+    if (this.syncInterval) return; // Already running
+    
+    this.syncInterval = window.setInterval(async () => {
+      if (!this.isSyncing) {
+        await this.sync();
+      }
+    }, intervalSeconds * 1000);
+  }
+
+  /**
+   * Stop auto-sync
+   */
+  stop(): void {
+    if (this.syncInterval) {
+      clearInterval(this.syncInterval);
+      this.syncInterval = null;
+    }
+  }
+
+  /**
+   * Manual sync
+   */
+  async sync(files?: Array<{ path: string; content: string; type: string }>): Promise<boolean> {
+    if (this.isSyncing) return false;
+    
+    this.isSyncing = true;
+    this.onSyncStatus?.('syncing', 'Syncing to GitHub...');
+    
+    try {
+      if (!files) {
+        // Get files from current project state
+        // This would need to be passed from the component
+        this.onSyncStatus?.('error', 'No files to sync');
+        return false;
+      }
+
+      const result = await pushToRepository(
+        this.token,
+        this.repo,
+        exportProjectForGitHub(files),
+        `Auto-sync: ${new Date().toLocaleString()}`,
+        this.branch
+      );
+
+      this.lastSyncTime = new Date();
+      this.onSyncStatus?.('success', 'Synced successfully');
+      return true;
+    } catch (error: any) {
+      this.onSyncStatus?.('error', error.message || 'Sync failed');
+      return false;
+    } finally {
+      this.isSyncing = false;
+    }
+  }
+
+  /**
+   * Get last sync time
+   */
+  getLastSyncTime(): Date | null {
+    return this.lastSyncTime;
+  }
+
+  /**
+   * Check if auto-sync is running
+   */
+  isRunning(): boolean {
+    return this.syncInterval !== null;
+  }
+}
+
+/**
  * Export project files for GitHub
  */
 export function exportProjectForGitHub(

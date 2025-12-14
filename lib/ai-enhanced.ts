@@ -1,4 +1,4 @@
-export type AIProvider = 'groq' | 'deepseek' | 'openai';
+export type AIProvider = 'anthropic' | 'deepseek' | 'openai' | 'gemini';
 
 // --- ENHANCED SYSTEM PROMPTS (Bolt.new / v0.app Level) ---
 const BUILDER_PROMPT_ENHANCED = `
@@ -194,7 +194,11 @@ RULE:
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 
 const formatErrorHtml = (provider: AIProvider, message: string) => {
-  if (provider === 'openai' && message.toLowerCase().includes('credit')) {
+  const isCreditError = message.toLowerCase().includes('credit') || message.toLowerCase().includes('insufficient');
+  const isOpenRouterProvider = provider === 'openai' || provider === 'anthropic' || provider === 'gemini';
+  
+  if (isOpenRouterProvider && isCreditError) {
+    const providerName = provider === 'openai' ? 'GPT-5.2' : provider === 'anthropic' ? 'Claude Sonnet 4.5' : provider === 'deepseek' ? 'Mistral Devstral' : 'Claude Sonnet 4.5';
     return `<!-- Error Generating Code --> 
       <div class="text-red-500 bg-red-900/20 p-4 rounded-lg border border-red-500/50">
         <strong>⚠️ OpenRouter Credits Insufficient</strong>
@@ -202,12 +206,86 @@ const formatErrorHtml = (provider: AIProvider, message: string) => {
         <p class="text-sm mb-2">${message}</p>
         <p class="text-sm mb-3"><strong>Solutions:</strong></p>
         <ul class="text-sm list-disc list-inside space-y-1 mb-3">
-          <li>Add credits at <a href="https://openrouter.ai/settings/credits" target="_blank" class="text-blue-400 underline">openrouter.ai/settings/credits</a></li>
-          <li>Switch to another provider (Groq or DeepSeek) in the provider selector</li>
+          <li><strong>Switch to Mistral Devstral</strong> - Free alternative that doesn't require OpenRouter credits</li>
+          ${provider === 'openai' ? '<li>Add credits at <a href="https://openrouter.ai/settings/credits" target="_blank" class="text-blue-400 underline">openrouter.ai/settings/credits</a></li>' : ''}
           <li>Try a shorter prompt to reduce token usage</li>
+          ${provider === 'openai' || provider === 'gemini' ? '<li>Check your OpenRouter API key has sufficient credits for ' + providerName + '</li>' : '<li>Note: ' + providerName + ' is free and does not require credits</li>'}
         </ul>
-        <span class="text-xs opacity-70">Note: GPT-4o requires paid credits on OpenRouter. Free alternatives: Groq (Llama 3) or DeepSeek V3.</span>
+        <span class="text-xs opacity-70">Note: All models use OpenRouter. Mistral Devstral is free, but GPT-5.2 and Claude Sonnet 4.5 require credits. Try <strong>DeepSeek</strong> for a free alternative.</span>
       </div>`;
+  }
+
+  // Special handling for Claude Sonnet 4.5 (anthropic) errors
+  if (provider === 'anthropic' || provider === 'gemini') {
+    const isHtmlError = message.toLowerCase().includes('html') || message.toLowerCase().includes('doctype');
+    const isModelError = message.toLowerCase().includes('model') && message.toLowerCase().includes('not found');
+    const isKeyError = message.toLowerCase().includes('invalid') && message.toLowerCase().includes('key');
+    
+    if (isHtmlError || isModelError || isKeyError) {
+      return `<!-- Error Generating Code --> 
+        <div class="text-red-500 bg-red-900/20 p-4 rounded-lg border border-red-500/50">
+          <strong>🚫 Claude Sonnet 4.5 Error</strong>
+          <br/><br/>
+          <p class="text-sm mb-2">${message}</p>
+          <p class="text-sm mb-3"><strong>Possible Causes & Solutions:</strong></p>
+          <ul class="text-sm list-disc list-inside space-y-1 mb-3">
+            ${isModelError ? '<li><strong>Model not available:</strong> The Claude Sonnet 4.5 model may not be accessible with your OpenRouter API key. Try using Groq (Llama 3) instead.</li>' : ''}
+            ${isKeyError ? '<li><strong>Invalid API Key:</strong> Check your OPENROUTER_API_KEY in backend environment variables.</li>' : ''}
+            ${isHtmlError ? '<li><strong>API Endpoint Error:</strong> The API returned HTML instead of JSON. This usually means the endpoint is incorrect or the service is down.</li>' : ''}
+            <li>Verify your <code class="bg-black/30 px-1 rounded">OPENROUTER_API_KEY</code> is set correctly in backend</li>
+            <li>Check if the model <code class="bg-black/30 px-1 rounded">anthropic/claude-sonnet-4.5</code> is available in your OpenRouter account</li>
+            <li>Try switching to <strong>Groq (Llama 3)</strong> provider as an alternative</li>
+            <li>Check backend logs for detailed error information</li>
+          </ul>
+          <span class="text-xs opacity-70">Note: Claude Sonnet 4.5 uses OpenRouter API. Make sure your API key has access to the model.</span>
+        </div>`;
+    }
+  }
+
+  // Special handling for DeepSeek errors (uses OpenRouter)
+  if (provider === 'deepseek') {
+    const isUnauthorized = message.toLowerCase().includes('401') || message.toLowerCase().includes('unauthorized');
+    const isKeyError = message.toLowerCase().includes('invalid') && message.toLowerCase().includes('key');
+    const isApiKeyError = message.toLowerCase().includes('api key');
+    
+    if (isUnauthorized || isKeyError || isApiKeyError) {
+      return `<!-- Error Generating Code --> 
+        <div class="text-red-500 bg-red-900/20 p-4 rounded-lg border border-red-500/50">
+          <strong>🚫 Mistral Devstral Error</strong>
+          <br/><br/>
+          <p class="text-sm mb-2">${message}</p>
+          <p class="text-sm mb-3"><strong>Possible Causes & Solutions:</strong></p>
+          <ul class="text-sm list-disc list-inside space-y-1 mb-3">
+            <li><strong>Invalid OpenRouter API Key:</strong> Mistral Devstral uses OpenRouter API. Check your <code class="bg-black/30 px-1 rounded">OPENROUTER_API_KEY</code> in backend environment variables.</li>
+            <li><strong>API Key Not Set:</strong> Make sure <code class="bg-black/30 px-1 rounded">OPENROUTER_API_KEY</code> is set in your backend <code class="bg-black/30 px-1 rounded">.env</code> file</li>
+            <li><strong>Model Access:</strong> Verify that your OpenRouter API key has access to the model <code class="bg-black/30 px-1 rounded">mistralai/devstral-2512:free</code></li>
+            <li>Get your API key from <a href="https://openrouter.ai/keys" target="_blank" class="text-blue-400 underline">openrouter.ai/keys</a></li>
+            <li>Restart your backend server after updating the API key</li>
+          </ul>
+          <span class="text-xs opacity-70">Note: Mistral Devstral uses OpenRouter API (not DEEPSEEK_API_KEY). Make sure your OPENROUTER_API_KEY is valid and has access to the model.</span>
+        </div>`;
+    }
+  }
+
+  // Special handling for API key not configured errors
+  if (message.toLowerCase().includes('api key not configured') || message.toLowerCase().includes('not configured')) {
+    const isOpenRouterProvider = provider === 'openai' || provider === 'anthropic' || provider === 'gemini' || provider === 'deepseek';
+    if (isOpenRouterProvider) {
+      const providerName = provider === 'openai' ? 'GPT-5.2' : provider === 'anthropic' ? 'Claude Sonnet 4.5' : provider === 'deepseek' ? 'Mistral Devstral' : 'Claude Sonnet 4.5';
+      return `<!-- Error Generating Code --> 
+        <div class="text-red-500 bg-red-900/20 p-4 rounded-lg border border-red-500/50">
+          <strong>⚠️ OpenRouter API Key Not Configured</strong>
+          <br/><br/>
+          <p class="text-sm mb-2">${providerName} uses OpenRouter API and requires OPENROUTER_API_KEY to be set in your backend environment variables.</p>
+          <p class="text-sm mb-3"><strong>Solutions:</strong></p>
+          <ul class="text-sm list-disc list-inside space-y-1 mb-3">
+            <li>Add <code class="bg-black/30 px-1 rounded">OPENROUTER_API_KEY</code> to your backend <code class="bg-black/30 px-1 rounded">.env</code> file</li>
+            <li>Get your API key from <a href="https://openrouter.ai/keys" target="_blank" class="text-blue-400 underline">openrouter.ai/keys</a></li>
+            <li>Restart your backend server after adding the key</li>
+          </ul>
+          <span class="text-xs opacity-70">Note: ${providerName} requires OpenRouter API key. Make sure it's set in backend environment variables.</span>
+        </div>`;
+    }
   }
 
   return `<!-- Error Generating Code --> 
@@ -222,7 +300,7 @@ export const generateCode = async (
   prompt: string,
   history: any[],
   mode: 'builder' | 'tutor' = 'builder',
-  provider: AIProvider = 'groq',
+  provider: AIProvider = 'anthropic',
   images: string[] = [],
   useEnhanced: boolean = true // New parameter to use enhanced prompt
 ) => {
@@ -249,9 +327,38 @@ export const generateCode = async (
     });
 
     if (!resp.ok) {
-      const errorData = await resp.json().catch(() => ({}));
+      // Try to parse as JSON first, fallback to text if HTML response
+      let errorData: any = {};
+      const contentType = resp.headers.get('content-type') || '';
+      
+      if (contentType.includes('application/json')) {
+        try {
+          errorData = await resp.json();
+        } catch (e) {
+          // If JSON parse fails, try as text
+          const text = await resp.text();
+          console.error(`[${provider}] Non-JSON error response:`, text.slice(0, 500));
+          errorData = { error: `API returned HTML instead of JSON. Status: ${resp.status}` };
+        }
+      } else {
+        // Response is HTML or other non-JSON format
+        const text = await resp.text();
+        console.error(`[${provider}] HTML error response:`, text.slice(0, 500));
+        errorData = { 
+          error: `API Error (${resp.status}): Server returned HTML instead of JSON. This usually means the API endpoint is incorrect, API key is invalid, or the service is unavailable.` 
+        };
+      }
+      
       const msg = errorData?.error || resp.statusText || 'Unknown error';
       throw new Error(msg);
+    }
+
+    // Check content type before parsing
+    const contentType = resp.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      const text = await resp.text();
+      console.error(`[${provider}] Non-JSON response:`, text.slice(0, 500));
+      throw new Error(`API returned ${contentType} instead of JSON. Response: ${text.slice(0, 200)}`);
     }
 
     const data = await resp.json();

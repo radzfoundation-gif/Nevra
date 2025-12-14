@@ -23,7 +23,9 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
   className,
 }) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const lineCount = value.split('\n').length;
+  // Ensure value is always a string to prevent .split() errors
+  const safeValue = typeof value === 'string' ? value : String(value || '');
+  const lineCount = safeValue.split('\n').length;
 
   return (
     <div className={clsx("flex flex-col h-full bg-[#0a0a0a] border-r border-white/5", className)}>
@@ -64,7 +66,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
             language === 'json' ? 'json' :
             'typescript'
           }
-          value={value}
+          value={safeValue}
           onChange={(newValue) => onChange(newValue || '')}
           theme="vs-dark"
           options={{
@@ -99,7 +101,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
       <div className="flex items-center justify-between px-4 py-2 border-t border-white/5 bg-[#0e0e0e] text-xs text-gray-500">
         <span className="font-mono">{language.toUpperCase()}</span>
         <span className="font-mono">
-          {value.length} chars • {lineCount} lines
+          {safeValue.length} chars • {lineCount} lines
         </span>
       </div>
     </div>

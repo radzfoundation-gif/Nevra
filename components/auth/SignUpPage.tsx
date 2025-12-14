@@ -4,7 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import Logo from '../Logo';
 
 const SignUpPage: React.FC = () => {
-    const { isSignedIn } = useAuth();
+    const { isSignedIn, isLoaded } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
 
@@ -13,10 +13,10 @@ const SignUpPage: React.FC = () => {
 
     // Redirect if already signed in
     useEffect(() => {
-        if (isSignedIn) {
+        if (isSignedIn && isLoaded) {
             navigate(from, { replace: true });
         }
-    }, [isSignedIn, navigate, from]);
+    }, [isSignedIn, isLoaded, navigate, from]);
 
     return (
         <div className="flex items-center justify-center min-h-screen bg-[#050505] text-white p-4">
@@ -52,6 +52,8 @@ const SignUpPage: React.FC = () => {
                         }}
                         redirectUrl={from}
                         signInUrl="/sign-in"
+                        routing="path"
+                        path="/sign-up"
                     />
                 </div>
 
